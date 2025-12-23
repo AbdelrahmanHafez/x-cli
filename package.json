@@ -1,6 +1,6 @@
 {
   "name": "@hafez/x-cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "CLI tool for viewing X (Twitter) posts and replies",
   "type": "module",
   "bin": {
