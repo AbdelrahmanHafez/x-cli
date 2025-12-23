@@ -1,17 +1,17 @@
-# x-cli
+# @hafez/x-cli
 
 A command-line tool for viewing X (Twitter) posts and their replies.
 
 ## Installation
 
 ```bash
-npm install -g x-cli
+npm install -g @hafez/x-cli
 ```
 
 Or clone and link locally:
 
 ```bash
-git clone https://github.com/yourusername/x-cli.git
+git clone https://github.com/AbdelrahmanHafez/x-cli.git
 cd x-cli
 npm install
 npm run build
