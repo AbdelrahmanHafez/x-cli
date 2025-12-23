@@ -1,31 +1,46 @@
 # @hafez/x-cli
 
-A command-line tool for viewing X (Twitter) posts and their replies.
+[![npm version](https://img.shields.io/npm/v/@hafez/x-cli.svg)](https://www.npmjs.com/package/@hafez/x-cli)
+[![npm downloads](https://img.shields.io/npm/dm/@hafez/x-cli.svg)](https://www.npmjs.com/package/@hafez/x-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/node/v/@hafez/x-cli.svg)](https://nodejs.org/)
+[![Tests](https://github.com/AbdelrahmanHafez/x-cli/actions/workflows/test.yml/badge.svg)](https://github.com/AbdelrahmanHafez/x-cli/actions/workflows/test.yml)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 
-## Installation
+> View X (Twitter) posts and their replies right from your terminal
+
+## Features
+
+- **Thread Context** - See parent tweets and full reply chains
+- **Dual Output** - JSON for scripting, pretty-print for humans
+- **Shell Completions** - First-class support for bash, zsh, and fish
+- **Lightweight** - Single dependency (yargs), fast startup
+
+## Quick Start
 
 ```bash
 npm install -g @hafez/x-cli
 ```
 
-Or clone and link locally:
-
 ```bash
-git clone https://github.com/AbdelrahmanHafez/x-cli.git
-cd x-cli
-npm install
-npm run build
-npm link
+# View any tweet
+x tweet https://x.com/elonmusk/status/1234567890
+
+# Or just use the ID
+x tweet 1234567890
+
+# Pretty output for readability
+x tweet 1234567890 --pretty
 ```
 
-## Authentication
+## Setup
 
-The CLI requires your X session cookies. To set up:
+The CLI uses your browser cookies to access X. One-time setup:
 
-1. Open [x.com](https://x.com) in your browser and log in
-2. Open DevTools (F12) → Application → Cookies → x.com
-3. Copy the values for `auth_token` and `ct0`
-4. Create the config file:
+1. Log into [x.com](https://x.com)
+2. Open DevTools (`F12`) → Application → Cookies → x.com
+3. Copy `auth_token` and `ct0` values
+4. Create config:
 
 ```bash
 mkdir -p ~/.config/x-cli
@@ -35,22 +50,11 @@ ct0=YOUR_CT0_TOKEN
 EOF
 ```
 
-## Usage
-
-```bash
-# View a tweet (JSON output)
-x tweet https://x.com/user/status/1234567890
-
-# View with pretty formatting
-x tweet https://x.com/user/status/1234567890 --pretty
-
-# Also works with just the tweet ID
-x tweet 1234567890
-```
-
-## Output
+## Output Formats
 
 ### JSON (default)
+
+Perfect for piping to `jq` or other tools:
 
 ```json
 {
@@ -67,6 +71,8 @@ x tweet 1234567890
 
 ### Pretty (`--pretty`)
 
+Human-friendly terminal output:
+
 ```
 User @username 2h ago
 Hello world!
@@ -80,17 +86,13 @@ Hello world!
 
 ## Shell Completions
 
-The easiest way to install shell completions is to run:
+Auto-install for your shell:
 
 ```bash
 x setup
 ```
 
-This auto-detects your shell and installs completions to the appropriate location.
-
-### Manual Installation
-
-If you prefer to install manually:
+Or install manually:
 
 ```bash
 # Bash
@@ -103,6 +105,16 @@ x completion zsh > ~/.zsh/completions/_x
 
 # Fish
 x completion fish > ~/.config/fish/completions/x.fish
+```
+
+## Development
+
+```bash
+git clone https://github.com/AbdelrahmanHafez/x-cli.git
+cd x-cli
+npm install
+npm run build
+npm link
 ```
 
 ## License
