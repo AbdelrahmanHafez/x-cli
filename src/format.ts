@@ -93,6 +93,20 @@ export function formatThreadPretty(thread: TweetThread): string {
   return lines.join("\n");
 }
 
-export function formatThreadJson(thread: TweetThread): string {
-  return JSON.stringify(thread, null, 2);
+function highlightJson(json: string): string {
+  return json
+    // Strings (keys and values) - must do keys first
+    .replace(/"([^"]+)":/g, `${COLORS.cyan}"$1"${COLORS.reset}:`)
+    // String values
+    .replace(/: "([^"]*)"/g, `: ${COLORS.green}"$1"${COLORS.reset}`)
+    // Numbers
+    .replace(/: (\d+)/g, `: ${COLORS.yellow}$1${COLORS.reset}`)
+    // Booleans and null
+    .replace(/: (true|false|null)/g, `: ${COLORS.blue}$1${COLORS.reset}`);
+}
+
+export function formatThreadJson(thread: TweetThread, options?: { color?: boolean }): string {
+  const json = JSON.stringify(thread, null, 2);
+  const useColor = options?.color ?? process.stdout.isTTY;
+  return useColor ? highlightJson(json) : json;
 }

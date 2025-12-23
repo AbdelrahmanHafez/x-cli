@@ -32,16 +32,16 @@ const createMockThread = (overrides: Partial<TweetThread> = {}): TweetThread => 
 
 describe("format", () => {
   describe("formatThreadJson", () => {
-    it("should return valid JSON string", () => {
+    it("should return valid JSON string when color is disabled", () => {
       const thread = createMockThread();
-      const result = formatThreadJson(thread);
+      const result = formatThreadJson(thread, { color: false });
 
       expect(() => JSON.parse(result)).not.toThrow();
     });
 
     it("should include mainTweet in output", () => {
       const thread = createMockThread();
-      const result = JSON.parse(formatThreadJson(thread));
+      const result = JSON.parse(formatThreadJson(thread, { color: false }));
 
       expect(result.mainTweet).toBeDefined();
       expect(result.mainTweet.id).toBe("123456789");
@@ -54,7 +54,7 @@ describe("format", () => {
           createMockTweet({ id: "reply2", text: "Great post!" })
         ]
       });
-      const result = JSON.parse(formatThreadJson(thread));
+      const result = JSON.parse(formatThreadJson(thread, { color: false }));
 
       expect(result.replies).toHaveLength(2);
       expect(result.replies[0].id).toBe("reply1");
@@ -64,17 +64,31 @@ describe("format", () => {
       const thread = createMockThread({
         parentTweets: [createMockTweet({ id: "parent1" })]
       });
-      const result = JSON.parse(formatThreadJson(thread));
+      const result = JSON.parse(formatThreadJson(thread, { color: false }));
 
       expect(result.parentTweets).toHaveLength(1);
     });
 
     it("should format with indentation", () => {
       const thread = createMockThread();
-      const result = formatThreadJson(thread);
+      const result = formatThreadJson(thread, { color: false });
 
       expect(result).toContain("\n");
       expect(result).toContain("  ");
+    });
+
+    it("should add color codes when color is enabled", () => {
+      const thread = createMockThread();
+      const result = formatThreadJson(thread, { color: true });
+
+      expect(result).toContain("\x1b["); // ANSI escape code
+    });
+
+    it("should not add color codes when color is disabled", () => {
+      const thread = createMockThread();
+      const result = formatThreadJson(thread, { color: false });
+
+      expect(result).not.toContain("\x1b[");
     });
   });
 
