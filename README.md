@@ -24,13 +24,13 @@ npm install -g @hafez/x-cli
 
 ```bash
 # View any tweet
-x tweet https://x.com/elonmusk/status/1234567890
+x tweet https://x.com/Google/status/2001322381533409733
 
 # Or just use the ID
-x tweet 1234567890
+x tweet 2001322381533409733
 
 # Pretty output for readability
-x tweet 1234567890 --pretty
+x tweet 2001322381533409733 --pretty
 ```
 
 ## Setup
