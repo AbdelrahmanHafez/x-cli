@@ -46,6 +46,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "x-client-transaction-id": "^0.1.9",
     "yargs": "^18.0.0"
   },
   "devDependencies": {

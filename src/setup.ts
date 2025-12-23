@@ -78,18 +78,17 @@ export function installCompletions(shell?: Shell): SetupResult {
           action = "already_installed";
         }
       }
-      if (action === "installed") {
-        writeFileSync(paths.file, completionScript);
-      }
+      // Always write latest completions
+      writeFileSync(paths.file, completionScript);
       reloadCommand = "source ~/.config/fish/completions/x.fish";
       break;
 
     case "zsh":
       if (existsSync(paths.file)) {
         action = "already_installed";
-      } else {
-        writeFileSync(paths.file, completionScript);
       }
+      // Always write latest completions
+      writeFileSync(paths.file, completionScript);
       // Add fpath to .zshrc if not present
       if (paths.rcFile && !zshFpathConfigured(paths.rcFile)) {
         const fpathLine = "\n# x-cli completions\nfpath=(~/.zsh/completions $fpath)\nautoload -Uz compinit && compinit\n";
@@ -99,10 +98,19 @@ export function installCompletions(shell?: Shell): SetupResult {
       break;
 
     case "bash":
-      if (paths.rcFile && bashCompletionInstalled(paths.rcFile)) {
-        action = "already_installed";
-      } else if (paths.rcFile) {
-        appendFileSync(paths.rcFile, `\n${completionScript}\n`);
+      if (paths.rcFile) {
+        if (bashCompletionInstalled(paths.rcFile)) {
+          // Replace existing completions
+          action = "already_installed";
+          const content = readFileSync(paths.rcFile, "utf-8");
+          const updated = content.replace(
+            /###-begin-x-completions-###[\s\S]*?###-end-x-completions-###/,
+            completionScript
+          );
+          writeFileSync(paths.rcFile, updated);
+        } else {
+          appendFileSync(paths.rcFile, `\n${completionScript}\n`);
+        }
       }
       reloadCommand = "source ~/.bashrc";
       break;

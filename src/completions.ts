@@ -10,7 +10,7 @@ _x_completions() {
     COMPREPLY=()
     cur="\${COMP_WORDS[COMP_CWORD]}"
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
-    commands="tweet completion setup"
+    commands="tweet login logout whoami completion setup"
 
     case "\${prev}" in
         x)
@@ -19,6 +19,15 @@ _x_completions() {
             ;;
         tweet)
             # No specific completions for tweet URL/ID
+            return 0
+            ;;
+        login)
+            return 0
+            ;;
+        logout)
+            return 0
+            ;;
+        whoami)
             return 0
             ;;
         completion)
@@ -38,6 +47,9 @@ _x_completions() {
             case "\${COMP_WORDS[1]}" in
                 tweet)
                     opts="--pretty -p --help -h"
+                    ;;
+                login)
+                    opts="--force -f --help -h"
                     ;;
                 setup)
                     opts="--shell -s --help -h"
@@ -66,6 +78,9 @@ _x() {
     local -a commands
     commands=(
         'tweet:View a tweet and its replies'
+        'login:Log in to X (Twitter)'
+        'logout:Log out and clear stored credentials'
+        'whoami:Show current logged-in user'
         'completion:Output shell completion script'
         'setup:Install shell completions'
     )
@@ -84,6 +99,11 @@ _x() {
                     _arguments \\
                         '1:url or tweet ID:' \\
                         '(-p --pretty)'{-p,--pretty}'[Pretty print output with colors]' \\
+                        '(-h --help)'{-h,--help}'[Show help]'
+                    ;;
+                login)
+                    _arguments \\
+                        '(-f --force)'{-f,--force}'[Force re-login even if already logged in]' \\
                         '(-h --help)'{-h,--help}'[Show help]'
                     ;;
                 completion)
@@ -110,6 +130,9 @@ complete -c x -f
 
 # Commands
 complete -c x -n "__fish_use_subcommand" -a "tweet" -d "View a tweet and its replies"
+complete -c x -n "__fish_use_subcommand" -a "login" -d "Log in to X (Twitter)"
+complete -c x -n "__fish_use_subcommand" -a "logout" -d "Log out and clear stored credentials"
+complete -c x -n "__fish_use_subcommand" -a "whoami" -d "Show current logged-in user"
 complete -c x -n "__fish_use_subcommand" -a "completion" -d "Output shell completion script"
 complete -c x -n "__fish_use_subcommand" -a "setup" -d "Install shell completions"
 
@@ -120,6 +143,10 @@ complete -c x -s v -l version -d "Show version number"
 # tweet command options
 complete -c x -n "__fish_seen_subcommand_from tweet" -s p -l pretty -d "Pretty print output with colors"
 complete -c x -n "__fish_seen_subcommand_from tweet" -s h -l help -d "Show help"
+
+# login command options
+complete -c x -n "__fish_seen_subcommand_from login" -s f -l force -d "Force re-login even if already logged in"
+complete -c x -n "__fish_seen_subcommand_from login" -s h -l help -d "Show help"
 
 # completion command arguments
 complete -c x -n "__fish_seen_subcommand_from completion" -a "bash zsh fish" -d "Shell type"

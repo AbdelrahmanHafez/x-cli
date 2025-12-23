@@ -1,7 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { AuthConfig, buildCookieHeader } from "./auth.js";
+import { ClientTransaction, handleXMigration } from "x-client-transaction-id";
+import { getGuestToken } from "./guest-token.js";
 
-const TWEET_DETAIL_QUERY_ID = "97JF30KziU00483E_8elBA";
-const BASE_URL = "https://x.com/i/api/graphql";
+const TWEET_DETAIL_QUERY_ID = "_8aYOgEDz35BrBcBal1-_w";
+const TWEET_BY_REST_ID_QUERY_ID = "aFvUsJm2c-oDkJV75blV6g";
+const BASE_URL = "https://x.com/i/api/graphql";  // For authenticated requests
+const GUEST_BASE_URL = "https://api.x.com/graphql";  // For guest requests
+
+// Cached transaction client for guest requests
+let transactionClient: ClientTransaction | null = null;
 
 // Public bearer token used by Twitter's web client
 const BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
@@ -125,13 +133,14 @@ export async function getTweetDetail(
 ): Promise<TweetThread> {
   const variables = {
     focalTweetId: tweetId,
-    with_rux_injections: false,
+    with_rux_injections: true,
     rankingMode: "Relevance",
-    includePromotedContent: false,
+    includePromotedContent: true,
     withCommunity: true,
     withQuickPromoteEligibilityTweetFields: true,
     withBirdwatchNotes: true,
     withVoice: true,
+    withV2Timeline: true,
   };
 
   const params = new URLSearchParams({
@@ -142,6 +151,9 @@ export async function getTweetDetail(
 
   const url = `${BASE_URL}/${TWEET_DETAIL_QUERY_ID}/TweetDetail?${params}`;
 
+  // Generate a random UUID for this session
+  const clientUuid = randomUUID();
+
   const response = await fetch(url, {
     headers: {
       accept: "*/*",
@@ -150,6 +162,7 @@ export async function getTweetDetail(
       "content-type": "application/json",
       cookie: buildCookieHeader(auth),
       "x-csrf-token": auth.csrfToken,
+      "x-client-uuid": clientUuid,
       "x-twitter-active-user": "yes",
       "x-twitter-auth-type": "OAuth2Session",
       "x-twitter-client-language": "en",
@@ -159,10 +172,18 @@ export async function getTweetDetail(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`API request failed (${response.status}): ${text}`);
+    const error = new Error(`API request failed (${response.status}): ${text}`) as Error & { status: number };
+    error.status = response.status;
+    throw error;
   }
 
   const data = await response.json();
+
+  // Check for errors in response
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+
   return parseTweetDetailResponse(data, tweetId);
 }
 
@@ -179,6 +200,7 @@ function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread 
   let mainTweet: Tweet | null = null;
   const parentTweets: Tweet[] = [];
   const replies: Tweet[] = [];
+  let foundEmptyTweetResults = false;
 
   for (const entry of entries) {
     const entryId = entry.entryId || "";
@@ -186,6 +208,13 @@ function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread 
 
     if (entryId.startsWith("tweet-")) {
       const tweetResult = content?.itemContent?.tweet_results?.result;
+
+      // Check if tweet_results exists but is empty (auth issue)
+      if (!tweetResult && content?.itemContent?.tweet_results &&
+          Object.keys(content.itemContent.tweet_results).length === 0) {
+        foundEmptyTweetResults = true;
+      }
+
       const tweet = extractTweetFromResult(tweetResult);
 
       if (tweet) {
@@ -210,6 +239,16 @@ function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread 
   }
 
   if (!mainTweet) {
+    if (foundEmptyTweetResults) {
+      const error = new Error(
+        "Authentication failed or expired. The API returned the tweet structure but without content.\n\n" +
+        "Your auth cookies may be invalid or expired. Try:\n" +
+        "1. Run 'x logout' then 'x login' to re-authenticate\n" +
+        "2. Or manually update ~/.config/x-cli/auth.json with fresh cookies from your browser"
+      ) as Error & { status: number };
+      error.status = 401;
+      throw error;
+    }
     throw new Error("Could not find the requested tweet");
   }
 
@@ -218,6 +257,79 @@ function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread 
     parentTweets,
     replies,
   };
+}
+
+async function initTransactionClient(): Promise<ClientTransaction> {
+  if (!transactionClient) {
+    const document = await handleXMigration();
+    transactionClient = await ClientTransaction.create(document);
+  }
+  return transactionClient;
+}
+
+export async function getTweetAsGuest(tweetId: string): Promise<Tweet> {
+  // Initialize transaction client and get guest token
+  const [client, guestToken] = await Promise.all([
+    initTransactionClient(),
+    getGuestToken(),
+  ]);
+
+  const variables = {
+    tweetId,
+    withCommunity: false,
+    includePromotedContent: false,
+    withVoice: false,
+  };
+
+  const params = new URLSearchParams({
+    variables: JSON.stringify(variables),
+    features: JSON.stringify(FEATURES),
+    fieldToggles: JSON.stringify(FIELD_TOGGLES),
+  });
+
+  const path = `/graphql/${TWEET_BY_REST_ID_QUERY_ID}/TweetResultByRestId`;
+  const transactionId = await client.generateTransactionId("GET", path);
+
+  const url = `${GUEST_BASE_URL}/${TWEET_BY_REST_ID_QUERY_ID}/TweetResultByRestId?${params}`;
+
+  const response = await fetch(url, {
+    headers: {
+      accept: "*/*",
+      "accept-language": "en-US,en;q=0.9",
+      authorization: `Bearer ${BEARER_TOKEN}`,
+      "content-type": "application/json",
+      origin: "https://x.com",
+      referer: "https://x.com/",
+      "x-guest-token": guestToken,
+      "x-client-transaction-id": transactionId,
+      "x-twitter-active-user": "yes",
+      "x-twitter-client-language": "en",
+      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Guest API request failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json();
+
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+
+  const result = data?.data?.tweetResult?.result;
+  if (!result) {
+    throw new Error("Tweet not found or not accessible");
+  }
+
+  const tweet = extractTweetFromResult(result);
+  if (!tweet) {
+    throw new Error("Failed to parse tweet data");
+  }
+
+  return tweet;
 }
 
 export function extractTweetId(input: string): string {

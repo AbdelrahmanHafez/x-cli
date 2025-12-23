@@ -11,10 +11,10 @@
 
 ## Features
 
-- **Thread Context** - See parent tweets and full reply chains
+- **Guest Mode** - View public tweets without authentication
+- **Thread Context** - See parent tweets and full reply chains (requires auth)
 - **Dual Output** - JSON for scripting, pretty-print for humans
 - **Shell Completions** - First-class support for bash, zsh, and fish
-- **Lightweight** - Single dependency (yargs), fast startup
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ npm install -g @hafez/x-cli
 ```
 
 ```bash
-# View any tweet
+# View any public tweet (no login required)
 x tweet https://x.com/Google/status/2001322381533409733
 
 # Or just use the ID
@@ -33,9 +33,22 @@ x tweet 2001322381533409733
 x tweet 2001322381533409733 --pretty
 ```
 
-## Setup
+## Authentication (Optional)
 
-The CLI uses your browser cookies to access X. One-time setup:
+Guest mode works for public tweets but won't show replies. For full access:
+
+```bash
+# See setup instructions
+x login
+
+# Check auth status
+x whoami
+
+# Clear credentials
+x logout
+```
+
+### Manual Setup
 
 1. Log into [x.com](https://x.com)
 2. Open DevTools (`F12`) → Application → Cookies → x.com
@@ -44,9 +57,11 @@ The CLI uses your browser cookies to access X. One-time setup:
 
 ```bash
 mkdir -p ~/.config/x-cli
-cat > ~/.config/x-cli/cookies.txt << EOF
-auth_token=YOUR_AUTH_TOKEN
-ct0=YOUR_CT0_TOKEN
+cat > ~/.config/x-cli/auth.json << EOF
+{
+  "authToken": "YOUR_AUTH_TOKEN",
+  "csrfToken": "YOUR_CT0_TOKEN"
+}
 EOF
 ```
 
@@ -106,6 +121,17 @@ x completion zsh > ~/.zsh/completions/_x
 # Fish
 x completion fish > ~/.config/fish/completions/x.fish
 ```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `x tweet <url>` | View a tweet (guest mode if not logged in) |
+| `x login` | Show authentication setup instructions |
+| `x logout` | Clear stored credentials |
+| `x whoami` | Show current auth status |
+| `x setup` | Install shell completions |
+| `x completion <shell>` | Output completion script |
 
 ## Development
 
