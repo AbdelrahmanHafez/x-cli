@@ -17,7 +17,7 @@ describe("api", () => {
 
   beforeEach(() => {
     // Spy on global.fetch
-    fetchSpy = jest.spyOn(global, 'fetch');
+    fetchSpy = jest.spyOn(global, "fetch");
   });
 
   afterEach(() => {
@@ -72,7 +72,7 @@ describe("api", () => {
       fetchSpy.mockResolvedValue(mockResponse("Internal Server Error", false, 500));
 
       await expect(getHomeTimeline(mockAuth)).rejects.toThrow(
-        'HomeTimeline failed (500): "Internal Server Error"'
+        "HomeTimeline failed (500): \"Internal Server Error\""
       );
     });
 
@@ -83,7 +83,7 @@ describe("api", () => {
       fetchSpy.mockResolvedValue(mockResponse(errorResponse));
 
       await expect(getHomeTimeline(mockAuth)).rejects.toThrow(
-        'API returned errors: [{"message":"Test API error"}]'
+        "API returned errors: [{\"message\":\"Test API error\"}]"
       );
     });
   });

@@ -78,7 +78,7 @@ const cli = yargs(hideBin(process.argv))
       }
     }
   )
-    .command(
+  .command(
     "home",
     "View your home timeline (login required)",
     (yargs) => {
@@ -122,7 +122,7 @@ const cli = yargs(hideBin(process.argv))
               `${t.text}\n` +
               `❤ ${t.metrics.likes}  🔁 ${t.metrics.retweets}  💬 ${t.metrics.replies}  👁 ${t.metrics.views}\n` +
               `id: ${t.id}\n` +
-              `----`
+              "----"
             );
           }
           if (result.cursor) {
