@@ -90,8 +90,9 @@ export interface TweetThread {
 }
 
 export interface HomeTimelineResult {
+
   tweets: Tweet[];
-  cursor?: string; // 次ページ用（取れたら）
+  cursor?: string; // For next page (if available)
 }
 
 function extractTweetFromResult(result: any): Tweet | null {
@@ -278,12 +279,12 @@ export async function getHomeTimeline(
 ): Promise<HomeTimelineResult> {
   const variables = {
     count: opts?.count ?? 40,
-    cursor: opts?.cursor, // undefinedなら送らない方が無難
+    cursor: opts?.cursor, // Better not to send if undefined
     includePromotedContent: opts?.includePromotedContent ?? true,
     withCommunity: opts?.withCommunity ?? true,
   };
 
-  // cursor が undefined のときは消す（APIが嫌うことがある）
+  // Delete cursor if it is undefined (the API may not like it)
   if (!variables.cursor) delete (variables as any).cursor;
 
   const params = new URLSearchParams({
@@ -348,10 +349,10 @@ export function parseHomeTimelineResponse(data: any): HomeTimelineResult {
     }
   }
 
-  // 次ページ cursor を拾う（場所が変わることがあるので best-effort）
+  // Pick up the next page cursor (best-effort as the location may change)
   const cursor = findCursor(entries);
 
-  // 重複排除（promoted と通常で被る/再取得で被るのを防ぐ）
+  // Deduplication (to prevent duplicates between promoted and regular tweets, and on re-fetch)
   const uniq = new Map<string, Tweet>();
   for (const t of tweets) uniq.set(t.id, t);
 
@@ -359,7 +360,7 @@ export function parseHomeTimelineResponse(data: any): HomeTimelineResult {
 }
 
 export function findCursor(entries: any[]): string | undefined {
-  // HomeTimeline の cursor は entry.content.value / entry.content.itemContent.value などに出ることがある
+  // The cursor for HomeTimeline may appear in entry.content.value / entry.content.itemContent.value, etc.
   for (const e of entries) {
     const c1 = e?.content?.value;
     if (typeof c1 === "string" && c1.length > 10) return c1;
