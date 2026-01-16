@@ -10,7 +10,7 @@ _x_completions() {
     COMPREPLY=()
     cur="\${COMP_WORDS[COMP_CWORD]}"
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
-    commands="tweet login logout whoami completion setup"
+    commands="tweet home login logout whoami completion setup"
 
     case "\${prev}" in
         x)
@@ -78,6 +78,7 @@ _x() {
     local -a commands
     commands=(
         'tweet:View a tweet and its replies'
+        'home:View your home timeline (login required)'
         'login:Log in to X (Twitter)'
         'logout:Log out and clear stored credentials'
         'whoami:Show current logged-in user'
@@ -130,6 +131,7 @@ complete -c x -f
 
 # Commands
 complete -c x -n "__fish_use_subcommand" -a "tweet" -d "View a tweet and its replies"
+complete -c x -n "__fish_use_subcommand" -a "home" -d "View your home timeline (login required)"
 complete -c x -n "__fish_use_subcommand" -a "login" -d "Log in to X (Twitter)"
 complete -c x -n "__fish_use_subcommand" -a "logout" -d "Log out and clear stored credentials"
 complete -c x -n "__fish_use_subcommand" -a "whoami" -d "Show current logged-in user"
