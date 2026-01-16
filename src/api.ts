@@ -5,6 +5,7 @@ import { getGuestToken } from "./guest-token.js";
 
 const TWEET_DETAIL_QUERY_ID = "_8aYOgEDz35BrBcBal1-_w";
 const TWEET_BY_REST_ID_QUERY_ID = "aFvUsJm2c-oDkJV75blV6g";
+const HOME_TIMELINE_QUERY_ID = "GP_SvUI4lAFrt6UyEnkAGA";
 const BASE_URL = "https://x.com/i/api/graphql";  // For authenticated requests
 const GUEST_BASE_URL = "https://api.x.com/graphql";  // For guest requests
 
@@ -49,6 +50,8 @@ const FEATURES = {
   responsive_web_grok_imagine_annotation_enabled: true,
   responsive_web_grok_community_note_auto_translation_is_enabled: false,
   responsive_web_enhance_cards_enabled: false,
+  post_ctas_fetch_enabled: true,
+  responsive_web_grok_annotations_enabled: false,
 };
 
 const FIELD_TOGGLES = {
@@ -84,6 +87,11 @@ export interface TweetThread {
   mainTweet: Tweet;
   parentTweets: Tweet[];
   replies: Tweet[];
+}
+
+export interface HomeTimelineResult {
+  tweets: Tweet[];
+  cursor?: string; // 次ページ用（取れたら）
 }
 
 function extractTweetFromResult(result: any): Tweet | null {
@@ -257,6 +265,112 @@ function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread 
     parentTweets,
     replies,
   };
+}
+
+export async function getHomeTimeline(
+  auth: AuthConfig,
+  opts?: {
+    count?: number;
+    cursor?: string;
+    includePromotedContent?: boolean;
+    withCommunity?: boolean;
+  }
+): Promise<HomeTimelineResult> {
+  const variables = {
+    count: opts?.count ?? 40,
+    cursor: opts?.cursor, // undefinedなら送らない方が無難
+    includePromotedContent: opts?.includePromotedContent ?? true,
+    withCommunity: opts?.withCommunity ?? true,
+  };
+
+  // cursor が undefined のときは消す（APIが嫌うことがある）
+  if (!variables.cursor) delete (variables as any).cursor;
+
+  const params = new URLSearchParams({
+    variables: JSON.stringify(variables),
+    features: JSON.stringify(FEATURES),
+  });
+
+  const url = `${BASE_URL}/${HOME_TIMELINE_QUERY_ID}/HomeTimeline?${params}`;
+
+  const clientUuid = randomUUID();
+
+  const response = await fetch(url, {
+    headers: {
+      accept: "*/*",
+      "accept-language": "ja,en-US;q=0.7,en;q=0.3",
+      authorization: `Bearer ${BEARER_TOKEN}`,
+      "content-type": "application/json",
+      cookie: buildCookieHeader(auth),
+      "x-csrf-token": auth.csrfToken,
+      "x-client-uuid": clientUuid,
+      "x-twitter-auth-type": "OAuth2Session",
+      "x-twitter-client-language": "en",
+      "x-twitter-active-user": "no",
+      "user-agent":
+        "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0",
+      referer: "https://x.com/home",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(`HomeTimeline failed (${response.status}): ${text}`) as Error & { status: number };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+
+  return parseHomeTimelineResponse(data);
+}
+
+function parseHomeTimelineResponse(data: any): HomeTimelineResult {
+  const instructions = data?.data?.home?.home_timeline_urt?.instructions ?? [];
+  const entries: any[] = [];
+
+  for (const ins of instructions) {
+    if (ins?.type === "TimelineAddEntries" && Array.isArray(ins.entries)) {
+      entries.push(...ins.entries);
+    }
+  }
+
+  const tweets: Tweet[] = [];
+  for (const entry of entries) {
+    const entryId = entry?.entryId ?? "";
+    if (entryId.startsWith("tweet-") || entryId.startsWith("promoted-tweet-")) {
+      const tweetResult = entry?.content?.itemContent?.tweet_results?.result;
+      const tweet = extractTweetFromResult(tweetResult);
+      if (tweet) tweets.push(tweet);
+    }
+  }
+
+  // 次ページ cursor を拾う（場所が変わることがあるので best-effort）
+  const cursor = findCursor(entries);
+
+  // 重複排除（promoted と通常で被る/再取得で被るのを防ぐ）
+  const uniq = new Map<string, Tweet>();
+  for (const t of tweets) uniq.set(t.id, t);
+
+  return { tweets: [...uniq.values()], cursor };
+}
+
+function findCursor(entries: any[]): string | undefined {
+  // HomeTimeline の cursor は entry.content.value / entry.content.itemContent.value などに出ることがある
+  for (const e of entries) {
+    const c1 = e?.content?.value;
+    if (typeof c1 === "string" && c1.length > 10) return c1;
+
+    const c2 = e?.content?.itemContent?.value;
+    if (typeof c2 === "string" && c2.length > 10) return c2;
+
+    const c3 = e?.content?.cursorType && e?.content?.value;
+    if (typeof c3 === "string" && c3.length > 10) return c3;
+  }
+  return undefined;
 }
 
 async function initTransactionClient(): Promise<ClientTransaction> {
