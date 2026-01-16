@@ -328,7 +328,7 @@ export async function getHomeTimeline(
   return parseHomeTimelineResponse(data);
 }
 
-function parseHomeTimelineResponse(data: any): HomeTimelineResult {
+export function parseHomeTimelineResponse(data: any): HomeTimelineResult {
   const instructions = data?.data?.home?.home_timeline_urt?.instructions ?? [];
   const entries: any[] = [];
 
@@ -358,7 +358,7 @@ function parseHomeTimelineResponse(data: any): HomeTimelineResult {
   return { tweets: [...uniq.values()], cursor };
 }
 
-function findCursor(entries: any[]): string | undefined {
+export function findCursor(entries: any[]): string | undefined {
   // HomeTimeline の cursor は entry.content.value / entry.content.itemContent.value などに出ることがある
   for (const e of entries) {
     const c1 = e?.content?.value;
