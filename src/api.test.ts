@@ -1,5 +1,5 @@
 import { getHomeTimeline, findCursor, extractTweetId, parseHomeTimelineResponse } from "./api.js";
-import { AuthConfig } from "./auth";
+import { AuthConfig } from "./auth.js";
 import { jest } from "@jest/globals";
 
 // Helper to create a mock Response object
