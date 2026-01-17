@@ -2,7 +2,14 @@
 
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { getTweetDetail, getTweetAsGuest, extractTweetId, getHomeTimeline } from "./api.js";
+import {
+  getTweetDetail,
+  getTweetAsGuest,
+  extractTweetId,
+  getHomeTimeline,
+  getHomeLatestTimeline,
+} from "./api.js";
+
 import { loadAuth, clearAuth } from "./storage.js";
 import { formatThreadPretty, formatThreadJson } from "./format.js";
 import { getCompletionScript } from "./completions.js";
@@ -94,6 +101,12 @@ const cli = yargs(hideBin(process.argv))
           describe: "Cursor for pagination (from previous response)",
           type: "string",
         })
+        .option("following", {
+          alias: "f",
+          describe: "Show following (latest) timeline",
+          type: "boolean",
+          default: false,
+        })
         .option("pretty", {
           alias: "p",
           describe: "Pretty print output with colors",
@@ -108,13 +121,17 @@ const cli = yargs(hideBin(process.argv))
           console.log("Not logged in. Run 'x login' to authenticate.\n");
           process.exit(1);
         }
-
-        const result = await getHomeTimeline(auth, {
-          count: argv.count,
-          cursor: argv.cursor,
-          includePromotedContent: true,
-          withCommunity: true,
-        });
+        const result = argv.following
+          ? await getHomeLatestTimeline(auth, {
+            count: argv.count,
+            cursor: argv.cursor,
+          })
+          : await getHomeTimeline(auth, {
+            count: argv.count,
+            cursor: argv.cursor,
+            includePromotedContent: true,
+            withCommunity: true,
+          });
         if (argv.pretty) {
           for (const t of result.tweets) {
             console.log(

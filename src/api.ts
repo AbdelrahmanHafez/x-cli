@@ -6,6 +6,8 @@ import { getGuestToken } from "./guest-token.js";
 const TWEET_DETAIL_QUERY_ID = "_8aYOgEDz35BrBcBal1-_w";
 const TWEET_BY_REST_ID_QUERY_ID = "aFvUsJm2c-oDkJV75blV6g";
 const HOME_TIMELINE_QUERY_ID = "GP_SvUI4lAFrt6UyEnkAGA";
+const HOME_LATEST_TIMELINE_QUERY_ID = "HN6oP_7h7HayqyYimz97Iw";
+
 const BASE_URL = "https://x.com/i/api/graphql";  // For authenticated requests
 const GUEST_BASE_URL = "https://api.x.com/graphql";  // For guest requests
 
@@ -94,6 +96,7 @@ export interface HomeTimelineResult {
   tweets: Tweet[];
   cursor?: string; // For next page (if available)
 }
+export interface HomeLatestTimelineResult extends HomeTimelineResult {}
 
 function extractTweetFromResult(result: any): Tweet | null {
   if (!result || result.__typename === "TweetTombstone") {
@@ -326,6 +329,77 @@ export async function getHomeTimeline(
     throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
   }
 
+  return parseHomeTimelineResponse(data, opts?.count);
+}
+
+export async function getHomeLatestTimeline(
+  auth: AuthConfig,
+  opts?: {
+    count?: number;
+    cursor?: string;
+    enableRanking?: boolean;
+    includePromotedContent?: boolean;
+    requestContext?: string; // e.g. "launch"
+    seenTweetIds?: string[];
+  }
+): Promise<HomeTimelineResult> {
+  const variables: Record<string, any> = {
+    count: opts?.count ?? 20,
+    enableRanking: opts?.enableRanking ?? true,
+    includePromotedContent: opts?.includePromotedContent ?? true,
+    requestContext: opts?.requestContext ?? "launch",
+    seenTweetIds: opts?.seenTweetIds ?? [],
+    cursor: opts?.cursor,
+  };
+
+  // APIが嫌がるパラメータは送らない（HomeTimelineと同じ思想）
+  if (!variables.cursor) delete variables.cursor;
+  if (!variables.seenTweetIds || variables.seenTweetIds.length === 0) delete variables.seenTweetIds;
+
+  const url = `${BASE_URL}/${HOME_LATEST_TIMELINE_QUERY_ID}/HomeLatestTimeline`;
+
+  const clientUuid = randomUUID();
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      accept: "*/*",
+      "accept-language": "ja,en-US;q=0.7,en;q=0.3",
+      authorization: `Bearer ${BEARER_TOKEN}`,
+      "content-type": "application/json",
+      cookie: buildCookieHeader(auth),
+      "x-csrf-token": auth.csrfToken,
+      "x-client-uuid": clientUuid,
+      "x-twitter-auth-type": "OAuth2Session",
+      "x-twitter-client-language": "en",
+      "x-twitter-active-user": "yes",
+      "user-agent":
+        "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0",
+      referer: "https://x.com/home",
+      origin: "https://x.com",
+    },
+    body: JSON.stringify({
+      queryId: HOME_LATEST_TIMELINE_QUERY_ID,
+      variables,
+      features: FEATURES,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(
+      `HomeLatestTimeline failed (${response.status}): ${text}`
+    ) as Error & { status: number };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+
+  // 返却構造が home.home_timeline_urt.instructions なので既存パーサを流用
   return parseHomeTimelineResponse(data, opts?.count);
 }
 
