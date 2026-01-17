@@ -41,7 +41,7 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function formatTweet(tweet: Tweet, indent: string = ""): string {
+export function formatTweet(tweet: Tweet, indent: string = ""): string {
   const { author, text, metrics, createdAt } = tweet;
 
   const header = `${COLORS.bold}${author.name}${COLORS.reset} ${COLORS.gray}@${author.username}${COLORS.reset} ${COLORS.dim}${formatDate(createdAt)}${COLORS.reset}`;
