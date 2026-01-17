@@ -326,10 +326,13 @@ export async function getHomeTimeline(
     throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
   }
 
-  return parseHomeTimelineResponse(data);
+  return parseHomeTimelineResponse(data, opts?.count);
 }
 
-export function parseHomeTimelineResponse(data: any): HomeTimelineResult {
+export function parseHomeTimelineResponse(
+  data: any,
+  count?: number,
+): HomeTimelineResult {
   const instructions = data?.data?.home?.home_timeline_urt?.instructions ?? [];
   const entries: any[] = [];
 
@@ -346,6 +349,7 @@ export function parseHomeTimelineResponse(data: any): HomeTimelineResult {
       const tweetResult = entry?.content?.itemContent?.tweet_results?.result;
       const tweet = extractTweetFromResult(tweetResult);
       if (tweet) tweets.push(tweet);
+      if (count && tweets.length >= count) break;
     }
   }
 
