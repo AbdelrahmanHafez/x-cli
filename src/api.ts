@@ -352,7 +352,7 @@ export async function getHomeLatestTimeline(
     cursor: opts?.cursor,
   };
 
-  // APIが嫌がるパラメータは送らない（HomeTimelineと同じ思想）
+  // Avoid sending parameters that the API might reject (similar to HomeTimeline).
   if (!variables.cursor) delete variables.cursor;
   if (!variables.seenTweetIds || variables.seenTweetIds.length === 0) delete variables.seenTweetIds;
 
@@ -399,7 +399,7 @@ export async function getHomeLatestTimeline(
     throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
   }
 
-  // 返却構造が home.home_timeline_urt.instructions なので既存パーサを流用
+  // The response structure is home.home_timeline_urt.instructions, so reuse the existing parser.
   return parseHomeTimelineResponse(data, opts?.count);
 }
 
