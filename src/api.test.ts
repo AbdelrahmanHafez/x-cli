@@ -1,4 +1,4 @@
-import { getHomeTimeline, findCursor, extractTweetId, parseHomeTimelineResponse } from "./api.js";
+import { getHomeTimeline, findCursor, extractTweetId, parseHomeTimelineResponse, getHomeLatestTimeline } from "./api.js";
 import { AuthConfig } from "./auth.js";
 import { jest } from "@jest/globals";
 
@@ -84,6 +84,70 @@ describe("api", () => {
 
       await expect(getHomeTimeline(mockAuth)).rejects.toThrow(
         "API returned errors: [{\"message\":\"Test API error\"}]"
+      );
+    });
+  });
+
+  describe("getHomeLatestTimeline", () => {
+    const mockAuth: AuthConfig = {
+      authToken: "test-auth-token",
+      csrfToken: "test-csrf-token",
+    };
+
+    it("should fetch and parse the latest home timeline", async () => {
+      const apiResponse = {
+        data: {
+          home: {
+            home_timeline_urt: {
+              instructions: [{
+                type: "TimelineAddEntries",
+                entries: [{
+                  entryId: "tweet-456",
+                  content: {
+                    itemContent: {
+                      tweet_results: {
+                        result: {
+                          __typename: "Tweet",
+                          rest_id: "456",
+                          legacy: { full_text: "Latest tweet" },
+                          core: { user_results: { result: { legacy: {} } } },
+                          views: {},
+                        },
+                      },
+                    },
+                  },
+                }],
+              }],
+            },
+          },
+        },
+      };
+      fetchSpy.mockResolvedValue(mockResponse(apiResponse));
+
+      const result = await getHomeLatestTimeline(mockAuth);
+      expect(result.tweets).toHaveLength(1);
+      expect(result.tweets[0].text).toBe("Latest tweet");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const requestBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+      expect(requestBody.variables.count).toBe(20); // Check default count
+    });
+
+    it("should throw an error if the API request fails", async () => {
+      fetchSpy.mockResolvedValue(mockResponse("Server Error", false, 500));
+
+      await expect(getHomeLatestTimeline(mockAuth)).rejects.toThrow(
+        "HomeLatestTimeline failed (500): \"Server Error\""
+      );
+    });
+
+    it("should throw an error if the API returns errors", async () => {
+      const errorResponse = {
+        errors: [{ message: "Latest timeline error" }],
+      };
+      fetchSpy.mockResolvedValue(mockResponse(errorResponse));
+
+      await expect(getHomeLatestTimeline(mockAuth)).rejects.toThrow(
+        "API returned errors: [{\"message\":\"Latest timeline error\"}]"
       );
     });
   });
