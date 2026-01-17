@@ -31,6 +31,9 @@ x tweet 2001322381533409733
 
 # Pretty output for readability
 x tweet 2001322381533409733 --pretty
+
+# View your home timeline (login required)
+x home --pretty --count 10
 ```
 
 ## Authentication (Optional)
@@ -127,6 +130,7 @@ x completion fish > ~/.config/fish/completions/x.fish
 | Command | Description |
 |---------|-------------|
 | `x tweet <url>` | View a tweet (guest mode if not logged in) |
+| `x home` | View your home timeline (login required) |
 | `x login` | Show authentication setup instructions |
 | `x logout` | Clear stored credentials |
 | `x whoami` | Show current auth status |
