@@ -11,7 +11,7 @@ import {
 } from "./api.js";
 
 import { loadAuth, clearAuth } from "./storage.js";
-import { formatThreadPretty, formatThreadJson } from "./format.js";
+import { formatThreadPretty, formatThreadJson, formatTweet } from "./format.js";
 import { getCompletionScript } from "./completions.js";
 import { installCompletions } from "./setup.js";
 
@@ -134,13 +134,8 @@ const cli = yargs(hideBin(process.argv))
           });
         if (argv.pretty) {
           for (const t of result.tweets) {
-            console.log(
-              `@${t.author.username} (${t.author.name})\n` +
-              `${t.text}\n` +
-              `❤ ${t.metrics.likes}  🔁 ${t.metrics.retweets}  💬 ${t.metrics.replies}  👁 ${t.metrics.views}\n` +
-              `id: ${t.id}\n` +
-              "----"
-            );
+            console.log(formatTweet(t));
+            console.log("----");
           }
           if (result.cursor) {
             console.log(`cursor: ${result.cursor}`);
