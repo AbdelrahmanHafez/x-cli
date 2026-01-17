@@ -164,6 +164,64 @@ describe("api", () => {
       expect(result.tweets).toHaveLength(0);
       expect(result.cursor).toBeUndefined();
     });
+
+    it("should respect the count parameter", () => {
+      const data = {
+        data: {
+          home: {
+            home_timeline_urt: {
+              instructions: [
+                {
+                  type: "TimelineAddEntries",
+                  entries: [
+                    {
+                      entryId: "tweet-1",
+                      content: {
+                        itemContent: {
+                          tweet_results: {
+                            result: {
+                              __typename: "Tweet",
+                              rest_id: "1",
+                              legacy: {
+                                full_text: "First tweet",
+                              },
+                              core: { user_results: { result: { legacy: {} } } },
+                              views: {},
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      entryId: "tweet-2",
+                      content: {
+                        itemContent: {
+                          tweet_results: {
+                            result: {
+                              __typename: "Tweet",
+                              rest_id: "2",
+                              legacy: {
+                                full_text: "Second tweet",
+                              },
+                              core: { user_results: { result: { legacy: {} } } },
+                              views: {},
+                            },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      };
+
+      const result = parseHomeTimelineResponse(data, 1);
+      expect(result.tweets).toHaveLength(1);
+      expect(result.tweets[0].id).toBe("1");
+    });
   });
 
   describe("findCursor", () => {
