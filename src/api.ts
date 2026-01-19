@@ -344,7 +344,7 @@ export async function getHomeLatestTimeline(
   }
 ): Promise<HomeTimelineResult> {
   const variables: Record<string, any> = {
-    count: opts?.count ?? 20,
+    count: opts?.count ?? 40,
     enableRanking: opts?.enableRanking ?? true,
     includePromotedContent: opts?.includePromotedContent ?? true,
     requestContext: opts?.requestContext ?? "launch",
