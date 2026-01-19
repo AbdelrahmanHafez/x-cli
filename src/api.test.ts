@@ -129,7 +129,7 @@ describe("api", () => {
       expect(result.tweets[0].text).toBe("Latest tweet");
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const requestBody = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
-      expect(requestBody.variables.count).toBe(20); // Check default count
+      expect(requestBody.variables.count).toBe(40); // Check default count
     });
 
     it("should throw an error if the API request fails", async () => {
