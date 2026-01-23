@@ -5,6 +5,9 @@ import { getGuestToken } from "./guest-token.js";
 
 const TWEET_DETAIL_QUERY_ID = "_8aYOgEDz35BrBcBal1-_w";
 const TWEET_BY_REST_ID_QUERY_ID = "aFvUsJm2c-oDkJV75blV6g";
+const HOME_TIMELINE_QUERY_ID = "GP_SvUI4lAFrt6UyEnkAGA";
+const HOME_LATEST_TIMELINE_QUERY_ID = "HN6oP_7h7HayqyYimz97Iw";
+
 const BASE_URL = "https://x.com/i/api/graphql";  // For authenticated requests
 const GUEST_BASE_URL = "https://api.x.com/graphql";  // For guest requests
 
@@ -49,6 +52,8 @@ const FEATURES = {
   responsive_web_grok_imagine_annotation_enabled: true,
   responsive_web_grok_community_note_auto_translation_is_enabled: false,
   responsive_web_enhance_cards_enabled: false,
+  post_ctas_fetch_enabled: true,
+  responsive_web_grok_annotations_enabled: false,
 };
 
 const FIELD_TOGGLES = {
@@ -85,6 +90,13 @@ export interface TweetThread {
   parentTweets: Tweet[];
   replies: Tweet[];
 }
+
+export interface HomeTimelineResult {
+
+  tweets: Tweet[];
+  cursor?: string; // For next page (if available)
+}
+export interface HomeLatestTimelineResult extends HomeTimelineResult {}
 
 function extractTweetFromResult(result: any): Tweet | null {
   if (!result || result.__typename === "TweetTombstone") {
@@ -257,6 +269,187 @@ function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread 
     parentTweets,
     replies,
   };
+}
+
+export async function getHomeTimeline(
+  auth: AuthConfig,
+  opts?: {
+    count?: number;
+    cursor?: string;
+    includePromotedContent?: boolean;
+    withCommunity?: boolean;
+  }
+): Promise<HomeTimelineResult> {
+  const variables = {
+    count: opts?.count ?? 40,
+    cursor: opts?.cursor, // Better not to send if undefined
+    includePromotedContent: opts?.includePromotedContent ?? true,
+    withCommunity: opts?.withCommunity ?? true,
+  };
+
+  // Delete cursor if it is undefined (the API may not like it)
+  if (!variables.cursor) delete (variables as any).cursor;
+
+  const params = new URLSearchParams({
+    variables: JSON.stringify(variables),
+    features: JSON.stringify(FEATURES),
+  });
+
+  const url = `${BASE_URL}/${HOME_TIMELINE_QUERY_ID}/HomeTimeline?${params}`;
+
+  const clientUuid = randomUUID();
+
+  const response = await fetch(url, {
+    headers: {
+      accept: "*/*",
+      "accept-language": "ja,en-US;q=0.7,en;q=0.3",
+      authorization: `Bearer ${BEARER_TOKEN}`,
+      "content-type": "application/json",
+      cookie: buildCookieHeader(auth),
+      "x-csrf-token": auth.csrfToken,
+      "x-client-uuid": clientUuid,
+      "x-twitter-auth-type": "OAuth2Session",
+      "x-twitter-client-language": "en",
+      "x-twitter-active-user": "no",
+      "user-agent":
+        "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0",
+      referer: "https://x.com/home",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(`HomeTimeline failed (${response.status}): ${text}`) as Error & { status: number };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+
+  return parseHomeTimelineResponse(data, opts?.count);
+}
+
+export async function getHomeLatestTimeline(
+  auth: AuthConfig,
+  opts?: {
+    count?: number;
+    cursor?: string;
+    enableRanking?: boolean;
+    includePromotedContent?: boolean;
+    requestContext?: string; // e.g. "launch"
+    seenTweetIds?: string[];
+  }
+): Promise<HomeTimelineResult> {
+  const variables: Record<string, any> = {
+    count: opts?.count ?? 40,
+    enableRanking: opts?.enableRanking ?? true,
+    includePromotedContent: opts?.includePromotedContent ?? true,
+    requestContext: opts?.requestContext ?? "launch",
+    seenTweetIds: opts?.seenTweetIds ?? [],
+    cursor: opts?.cursor,
+  };
+
+  // Avoid sending parameters that the API might reject (similar to HomeTimeline).
+  if (!variables.cursor) delete variables.cursor;
+  if (!variables.seenTweetIds || variables.seenTweetIds.length === 0) delete variables.seenTweetIds;
+
+  const url = `${BASE_URL}/${HOME_LATEST_TIMELINE_QUERY_ID}/HomeLatestTimeline`;
+
+  const clientUuid = randomUUID();
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      accept: "*/*",
+      "accept-language": "ja,en-US;q=0.7,en;q=0.3",
+      authorization: `Bearer ${BEARER_TOKEN}`,
+      "content-type": "application/json",
+      cookie: buildCookieHeader(auth),
+      "x-csrf-token": auth.csrfToken,
+      "x-client-uuid": clientUuid,
+      "x-twitter-auth-type": "OAuth2Session",
+      "x-twitter-client-language": "en",
+      "x-twitter-active-user": "yes",
+      "user-agent":
+        "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0",
+      referer: "https://x.com/home",
+      origin: "https://x.com",
+    },
+    body: JSON.stringify({
+      queryId: HOME_LATEST_TIMELINE_QUERY_ID,
+      variables,
+      features: FEATURES,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(
+      `HomeLatestTimeline failed (${response.status}): ${text}`
+    ) as Error & { status: number };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+
+  // The response structure is home.home_timeline_urt.instructions, so reuse the existing parser.
+  return parseHomeTimelineResponse(data, opts?.count);
+}
+
+export function parseHomeTimelineResponse(
+  data: any,
+  count?: number,
+): HomeTimelineResult {
+  const instructions = data?.data?.home?.home_timeline_urt?.instructions ?? [];
+  const entries: any[] = [];
+
+  for (const ins of instructions) {
+    if (ins?.type === "TimelineAddEntries" && Array.isArray(ins.entries)) {
+      entries.push(...ins.entries);
+    }
+  }
+
+  const tweets: Tweet[] = [];
+  for (const entry of entries) {
+    const entryId = entry?.entryId ?? "";
+    if (entryId.startsWith("tweet-") || entryId.startsWith("promoted-tweet-")) {
+      const tweetResult = entry?.content?.itemContent?.tweet_results?.result;
+      const tweet = extractTweetFromResult(tweetResult);
+      if (tweet) tweets.push(tweet);
+      if (count && tweets.length >= count) break;
+    }
+  }
+
+  // Pick up the next page cursor (best-effort as the location may change)
+  const cursor = findCursor(entries);
+
+  // Deduplication (to prevent duplicates between promoted and regular tweets, and on re-fetch)
+  const uniq = new Map<string, Tweet>();
+  for (const t of tweets) uniq.set(t.id, t);
+
+  return { tweets: [...uniq.values()], cursor };
+}
+
+export function findCursor(entries: any[]): string | undefined {
+  // The cursor for HomeTimeline may appear in entry.content.value / entry.content.itemContent.value, etc.
+  for (const e of entries) {
+    const c1 = e?.content?.value;
+    if (typeof c1 === "string" && c1.length > 10) return c1;
+
+    const c2 = e?.content?.itemContent?.value;
+    if (typeof c2 === "string" && c2.length > 10) return c2;
+
+    const c3 = e?.content?.cursorType && e?.content?.value;
+    if (typeof c3 === "string" && c3.length > 10) return c3;
+  }
+  return undefined;
 }
 
 async function initTransactionClient(): Promise<ClientTransaction> {
