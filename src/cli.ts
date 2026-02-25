@@ -2,9 +2,16 @@
 
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
-import { getTweetDetail, getTweetAsGuest, extractTweetId } from "./api.js";
+import {
+  getTweetDetail,
+  getTweetAsGuest,
+  extractTweetId,
+  getHomeTimeline,
+  getHomeLatestTimeline,
+} from "./api.js";
+
 import { loadAuth, clearAuth } from "./storage.js";
-import { formatThreadPretty, formatThreadJson } from "./format.js";
+import { formatThreadPretty, formatThreadJson, formatTweet } from "./format.js";
 import { getCompletionScript } from "./completions.js";
 import { installCompletions } from "./setup.js";
 
@@ -68,6 +75,73 @@ const cli = yargs(hideBin(process.argv))
           } else {
             console.log(formatThreadJson(thread));
           }
+        }
+      } catch (error) {
+        console.error(
+          "Error:",
+          error instanceof Error ? error.message : String(error)
+        );
+        process.exit(1);
+      }
+    }
+  )
+  .command(
+    "home",
+    "View your home timeline (login required)",
+    (yargs) => {
+      return yargs
+        .option("count", {
+          alias: "n",
+          describe: "Number of tweets to fetch",
+          type: "number",
+          default: 40,
+        })
+        .option("cursor", {
+          alias: "c",
+          describe: "Cursor for pagination (from previous response)",
+          type: "string",
+        })
+        .option("following", {
+          alias: "f",
+          describe: "Show following (latest) timeline",
+          type: "boolean",
+          default: false,
+        })
+        .option("pretty", {
+          alias: "p",
+          describe: "Pretty print output with colors",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      try {
+        const auth = await loadAuth();
+        if (!auth) {
+          console.log("Not logged in. Run 'x login' to authenticate.\n");
+          process.exit(1);
+        }
+        const result = argv.following
+          ? await getHomeLatestTimeline(auth, {
+            count: argv.count,
+            cursor: argv.cursor,
+          })
+          : await getHomeTimeline(auth, {
+            count: argv.count,
+            cursor: argv.cursor,
+            includePromotedContent: true,
+            withCommunity: true,
+          });
+        if (argv.pretty) {
+          for (const t of result.tweets) {
+            console.log(formatTweet(t));
+            console.log("----");
+          }
+          if (result.cursor) {
+            console.log(`cursor: ${result.cursor}`);
+          }
+        } else {
+          console.log(JSON.stringify(result, null, 2));
         }
       } catch (error) {
         console.error(

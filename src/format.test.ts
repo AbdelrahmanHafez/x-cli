@@ -1,4 +1,4 @@
-import { formatThreadPretty, formatThreadJson } from "./format.js";
+import { formatTweet, formatThreadPretty, formatThreadJson } from "./format.js";
 import type { TweetThread, Tweet } from "./api.js";
 
 const createMockTweet = (overrides: Partial<Tweet> = {}): Tweet => ({
@@ -185,6 +185,69 @@ describe("format", () => {
       expect(result).toContain("Line 1");
       expect(result).toContain("Line 2");
       expect(result).toContain("Line 3");
+    });
+  });
+
+  describe("formatTweet", () => {
+    it("should include author name and username", () => {
+      const tweet = createMockTweet();
+      const result = formatTweet(tweet);
+
+      expect(result).toContain("Test User");
+      expect(result).toContain("@testuser");
+    });
+
+    it("should include tweet text", () => {
+      const tweet = createMockTweet({ text: "This is a test tweet." });
+      const result = formatTweet(tweet);
+
+      expect(result).toContain("This is a test tweet.");
+    });
+
+    it("should show metrics", () => {
+      const tweet = createMockTweet({
+        metrics: {
+          likes: 42,
+          retweets: 10,
+          replies: 5,
+          quotes: 2,
+          views: 1000,
+          bookmarks: 1
+        }
+      });
+      const result = formatTweet(tweet);
+
+      expect(result).toContain("5 replies");
+      expect(result).toContain("10 retweets");
+      expect(result).toContain("42 likes");
+      expect(result).toContain("1K views");
+    });
+
+    it("should apply indentation", () => {
+      const tweet = createMockTweet({ text: "Line 1\nLine 2" });
+      const result = formatTweet(tweet, "  ");
+      const lines = result.split("\n");
+
+      expect(lines.every(line => line.startsWith("  "))).toBe(true);
+    });
+
+    it("should hide metrics with zero values", () => {
+      const tweet = createMockTweet({
+        metrics: {
+          likes: 10,
+          retweets: 0,
+          replies: 0,
+          quotes: 0,
+          views: 20,
+          bookmarks: 0
+        }
+      });
+      const result = formatTweet(tweet);
+
+      expect(result).toContain("10 likes");
+      expect(result).toContain("20 views");
+      expect(result).not.toContain("retweets");
+      expect(result).not.toContain("replies");
     });
   });
 });
