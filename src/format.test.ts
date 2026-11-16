@@ -387,5 +387,33 @@ describe("format stats", () => {
       expect(result).toContain("Hello stats");
       expect(result).toContain("views");
     });
+
+    it("should render placeholders for a missing username and counts", () => {
+      const result = formatStatsPretty(
+        createMockStats({ username: null, followers: null, following: null, recent_posts: [] })
+      );
+      expect(result).toContain("@?");
+      expect(result).toContain("unknown followers");
+    });
+
+    it("should omit the metrics line for a post with no metrics", () => {
+      const result = formatStatsPretty(
+        createMockStats({
+          recent_posts: [
+            {
+              id: "1009",
+              posted_at: null,
+              text: "No metrics yet",
+              views: null,
+              likes: null,
+              reposts: null,
+              replies: null,
+            },
+          ],
+        })
+      );
+      expect(result).toContain("No metrics yet");
+      expect(result).not.toContain("views");
+    });
   });
 });

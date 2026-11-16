@@ -1043,6 +1043,27 @@ describe("user stats", () => {
     it("returns null for tombstones", () => {
       expect(statsPostFromResult({ __typename: "TweetTombstone" })).toBeNull();
     });
+
+    it("returns null for malformed results without legacy or id", () => {
+      expect(statsPostFromResult({})).toBeNull();
+      expect(statsPostFromResult(null)).toBeNull();
+      expect(statsPostFromResult({ __typename: "Tweet", legacy: {} })).toBeNull();
+    });
+
+    it("keeps an unparseable date null instead of throwing", () => {
+      const post = statsPostFromResult(makeTweetResult("1006", { created_at: "not a date" }));
+      expect(post?.posted_at).toBeNull();
+    });
+
+    it("parses a zero view count as 0, not null", () => {
+      const post = statsPostFromResult(makeTweetResult("1007", {}, { views: { count: "0" } }));
+      expect(post?.views).toBe(0);
+    });
+
+    it("keeps a non-numeric view count null", () => {
+      const post = statsPostFromResult(makeTweetResult("1008", {}, { views: { count: "abc" } }));
+      expect(post?.views).toBeNull();
+    });
   });
 
   describe("parseUserTweetsResponse", () => {
@@ -1073,6 +1094,35 @@ describe("user stats", () => {
       const { posts, bottomCursor } = parseUserTweetsResponse(data);
       expect(posts.map((p) => p.id)).toEqual(["1001", "1003"]);
       expect(bottomCursor).toBe("CURSOR123");
+    });
+
+    it("reads the legacy timeline path as a fallback", () => {
+      const data = {
+        data: {
+          user: {
+            result: {
+              timeline: {
+                timeline: {
+                  instructions: [
+                    {
+                      type: "TimelineAddEntries",
+                      entries: [tweetEntry(makeTweetResult("2001"))],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      };
+      const { posts, bottomCursor } = parseUserTweetsResponse(data);
+      expect(posts.map((p) => p.id)).toEqual(["2001"]);
+      expect(bottomCursor).toBeUndefined();
+    });
+
+    it("returns an empty page for missing instructions", () => {
+      expect(parseUserTweetsResponse({})).toEqual({ posts: [], bottomCursor: undefined });
+      expect(parseUserTweetsResponse(null)).toEqual({ posts: [], bottomCursor: undefined });
     });
   });
 
@@ -1170,6 +1220,120 @@ describe("user stats", () => {
 
       const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
       await expect(getUserStats(auth)).rejects.toThrow("UserByRestId failed (500)");
+    });
+
+    it("falls back to UserByRestId when the viewer has no follower count", async () => {
+      const viewerNoCounts = {
+        data: {
+          viewer_v2: {
+            user_results: {
+              result: { __typename: "User", rest_id: "386573", legacy: {} },
+            },
+          },
+        },
+      };
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("NotificationsTimeline")) return mockResponse(viewerNoCounts);
+        if (u.includes("UserByRestId")) return mockResponse(profileData);
+        if (u.includes("UserTweets")) {
+          return mockResponse(userTweetsData([tweetEntry(makeTweetResult("1001"))]));
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c" };
+      const stats = await getUserStats(auth);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect(stats.followers).toBe(1841);
+    });
+
+    it("throws when the logged-in user cannot be determined", async () => {
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("NotificationsTimeline")) return mockResponse({ data: {} });
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c" };
+      await expect(getUserStats(auth)).rejects.toThrow("Could not determine the logged-in user");
+    });
+
+    it("throws when the profile result is missing", async () => {
+      fetchSpy.mockResolvedValue(mockResponse({ data: { user: {} } }));
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      await expect(getUserStats(auth)).rejects.toThrow("Could not load the user profile");
+    });
+
+    it("throws when the API returns a GraphQL errors array", async () => {
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("UserByRestId")) return mockResponse(profileData);
+        if (u.includes("UserTweets")) {
+          return mockResponse({ errors: [{ message: "boom" }] });
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      await expect(getUserStats(auth)).rejects.toThrow("API returned errors");
+    });
+
+    it("passes the bottom cursor to the next page request", async () => {
+      const seenVariables: any[] = [];
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("UserByRestId")) return mockResponse(profileData);
+        if (u.includes("UserTweets")) {
+          const variables = JSON.parse(new URL(u).searchParams.get("variables") || "{}");
+          seenVariables.push(variables);
+          if (seenVariables.length === 1) {
+            return mockResponse(
+              userTweetsData([
+                tweetEntry(makeTweetResult("1001")),
+                { entryId: "cursor-bottom-0", content: { value: "C2" } },
+              ])
+            );
+          }
+          return mockResponse(userTweetsData([tweetEntry(makeTweetResult("1002"))]));
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      const stats = await getUserStats(auth, { count: 2 });
+
+      expect(seenVariables).toHaveLength(2);
+      expect(seenVariables[0].cursor).toBeUndefined();
+      expect(seenVariables[0].userId).toBe("386573");
+      expect(seenVariables[1].cursor).toBe("C2");
+      expect(stats.recent_posts.map((p) => p.id)).toEqual(["1001", "1002"]);
+    });
+
+    it("stops paginating at the page cap even if cursors keep coming", async () => {
+      let tweetsCalls = 0;
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("UserByRestId")) return mockResponse(profileData);
+        if (u.includes("UserTweets")) {
+          tweetsCalls++;
+          return mockResponse(
+            userTweetsData([
+              tweetEntry(makeTweetResult(`300${tweetsCalls}`)),
+              { entryId: "cursor-bottom-0", content: { value: `C${tweetsCalls + 1}` } },
+            ])
+          );
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      const stats = await getUserStats(auth, { count: 50 });
+
+      expect(tweetsCalls).toBe(6);
+      expect(stats.recent_posts).toHaveLength(6);
     });
   });
 
