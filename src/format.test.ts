@@ -1,5 +1,5 @@
-import { formatTweet, formatThreadPretty, formatThreadJson, formatNotificationsPretty, formatNotificationsJson } from "./format.js";
-import type { TweetThread, Tweet, NotificationsPage, Notification } from "./api.js";
+import { formatTweet, formatThreadPretty, formatThreadJson, formatNotificationsPretty, formatNotificationsJson, formatStatsPretty, formatStatsJson } from "./format.js";
+import type { TweetThread, Tweet, NotificationsPage, Notification, UserStats } from "./api.js";
 
 const createMockTweet = (overrides: Partial<Tweet> = {}): Tweet => ({
   id: "123456789",
@@ -328,6 +328,64 @@ describe("format notifications", () => {
       const data = JSON.parse(formatNotificationsJson(page, { color: false }));
       expect(data[0].tweetId).toBe("999888777");
       expect(data[0].unread).toBe(true);
+    });
+  });
+});
+
+describe("format stats", () => {
+  const createMockStats = (overrides: Partial<UserStats> = {}): UserStats => ({
+    collected_at: "2026-11-16T09:00:00.000Z",
+    username: "freddiefujiwara",
+    followers: 1841,
+    following: 120,
+    recent_posts: [
+      {
+        id: "1001",
+        posted_at: "2026-11-10T03:00:00.000Z",
+        text: "Hello stats",
+        views: 456,
+        likes: 7,
+        reposts: 3,
+        replies: 2,
+      },
+    ],
+    ...overrides,
+  });
+
+  describe("formatStatsJson", () => {
+    it("should emit the sns_snapshot-shaped document", () => {
+      const data = JSON.parse(formatStatsJson(createMockStats(), { color: false }));
+      expect(data.ok).toBe(true);
+      expect(data.collected_at).toBe("2026-11-16T09:00:00.000Z");
+      expect(data.x.username).toBe("freddiefujiwara");
+      expect(data.x.followers).toBe(1841);
+      expect(data.x.following).toBe(120);
+      expect(data.x.recent_posts).toHaveLength(1);
+      expect(data.x.recent_posts[0]).toEqual({
+        id: "1001",
+        posted_at: "2026-11-10T03:00:00.000Z",
+        text: "Hello stats",
+        views: 456,
+        likes: 7,
+        reposts: 3,
+        replies: 2,
+      });
+    });
+
+    it("should keep null metrics as null", () => {
+      const stats = createMockStats({ followers: null });
+      const data = JSON.parse(formatStatsJson(stats, { color: false }));
+      expect(data.x.followers).toBeNull();
+    });
+  });
+
+  describe("formatStatsPretty", () => {
+    it("should show the account summary and post metrics", () => {
+      const result = formatStatsPretty(createMockStats());
+      expect(result).toContain("@freddiefujiwara");
+      expect(result).toContain("followers");
+      expect(result).toContain("Hello stats");
+      expect(result).toContain("views");
     });
   });
 });

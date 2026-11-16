@@ -976,3 +976,274 @@ export function parseNotificationsTimelineResponse(data: any): NotificationsPage
     notifications,
   };
 }
+
+// ===== User stats (own profile + recent posts) =====
+
+const USER_BY_REST_ID_QUERY_ID = "tD8zKvQzwY3kdx5yz6YmOw";
+const USER_TWEETS_QUERY_ID = "QWF3SzpHmykQHsQMixG0cg";
+
+export interface UserProfile {
+  id: string;
+  username: string | null;
+  name: string | null;
+  followers: number | null;
+  following: number | null;
+}
+
+export interface StatsPost {
+  id: string;
+  posted_at: string | null; // ISO 8601
+  text: string;
+  views: number | null;
+  likes: number | null;
+  reposts: number | null;
+  replies: number | null;
+}
+
+export interface UserStats {
+  collected_at: string; // ISO 8601
+  username: string | null;
+  followers: number | null;
+  following: number | null;
+  recent_posts: StatsPost[];
+}
+
+/** Absent metrics stay null (never 0), mirroring tweet-gas sns_snapshot. */
+function metricOrNull(v: any): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+export function parseUserResult(userResult: any): UserProfile | null {
+  if (!userResult || userResult.__typename === "UserUnavailable") return null;
+
+  const id = userResult.rest_id;
+  if (typeof id !== "string" || !id) return null;
+
+  const legacy = userResult.legacy || {};
+  const core = userResult.core || {};
+  return {
+    id,
+    username: core.screen_name || legacy.screen_name || null,
+    name: core.name || legacy.name || null,
+    followers: metricOrNull(legacy.followers_count),
+    following: metricOrNull(legacy.friends_count),
+  };
+}
+
+/** The logged-in user as embedded in a NotificationsTimeline response. */
+export function extractViewerProfile(data: any): UserProfile | null {
+  return parseUserResult(getByPath(data, "data.viewer_v2.user_results.result"));
+}
+
+async function graphqlGet(
+  auth: AuthConfig,
+  queryId: string,
+  operationName: string,
+  variables: Record<string, any>
+): Promise<any> {
+  const params = new URLSearchParams({
+    variables: JSON.stringify(variables),
+    features: JSON.stringify(FEATURES),
+  });
+
+  const url = `${BASE_URL}/${queryId}/${operationName}?${params}`;
+
+  const clientUuid = randomUUID();
+
+  const response = await fetch(url, {
+    headers: {
+      accept: "*/*",
+      "accept-language": "en-US,en;q=0.9",
+      authorization: `Bearer ${BEARER_TOKEN}`,
+      "content-type": "application/json",
+      cookie: buildCookieHeader(auth),
+      "x-csrf-token": auth.csrfToken,
+      "x-client-uuid": clientUuid,
+      "x-twitter-active-user": "yes",
+      "x-twitter-auth-type": "OAuth2Session",
+      "x-twitter-client-language": "en",
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    const error = new Error(`${operationName} failed (${response.status}): ${text}`) as Error & {
+      status: number;
+    };
+    error.status = response.status;
+    throw error;
+  }
+
+  const data = await response.json();
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+  return data;
+}
+
+export async function getUserByRestId(auth: AuthConfig, userId: string): Promise<UserProfile> {
+  const data = await graphqlGet(auth, USER_BY_REST_ID_QUERY_ID, "UserByRestId", {
+    userId,
+    withSafetyModeUserFields: true,
+  });
+  const profile = parseUserResult(data?.data?.user?.result);
+  if (!profile) {
+    throw new Error("Could not load the user profile");
+  }
+  return profile;
+}
+
+async function fetchViewerProfile(auth: AuthConfig): Promise<UserProfile | null> {
+  const data = await graphqlGet(auth, NOTIFICATIONS_TIMELINE_QUERY_ID, "NotificationsTimeline", {
+    timeline_type: "All",
+    count: 1,
+  });
+  return extractViewerProfile(data);
+}
+
+export async function getOwnProfile(auth: AuthConfig): Promise<UserProfile> {
+  if (auth.userId) {
+    return getUserByRestId(auth, auth.userId);
+  }
+
+  // auth.json usually stores only the cookies, so resolve the account
+  // from the viewer object embedded in a notifications response.
+  const viewer = await fetchViewerProfile(auth);
+  if (viewer && viewer.followers !== null) {
+    return viewer;
+  }
+  if (viewer) {
+    return getUserByRestId(auth, viewer.id);
+  }
+  throw new Error(
+    "Could not determine the logged-in user. Try 'x logout' then 'x login' again."
+  );
+}
+
+/**
+ * Maps one tweet result to a stats post. Returns null for tombstones,
+ * retweets and replies, mirroring the tweet-gas sns_snapshot query
+ * (exclude=retweets,replies).
+ */
+export function statsPostFromResult(result: any): StatsPost | null {
+  if (!result || result.__typename === "TweetTombstone") {
+    return null;
+  }
+
+  const tweet = result.__typename === "TweetWithVisibilityResults" ? result.tweet : result;
+  const legacy = tweet?.legacy;
+  if (!legacy || typeof tweet?.rest_id !== "string" || !tweet.rest_id) {
+    return null;
+  }
+
+  if (legacy.retweeted_status_result) return null;
+  if (legacy.in_reply_to_status_id_str) return null;
+
+  const created = typeof legacy.created_at === "string" ? new Date(legacy.created_at) : null;
+
+  const viewsRaw = tweet.views?.count;
+  let views: number | null = null;
+  if (viewsRaw !== undefined && viewsRaw !== null && viewsRaw !== "") {
+    const parsed = Number.parseInt(String(viewsRaw), 10);
+    views = Number.isNaN(parsed) ? null : parsed;
+  }
+
+  return {
+    id: tweet.rest_id,
+    posted_at: created && !Number.isNaN(created.getTime()) ? created.toISOString() : null,
+    text: typeof legacy.full_text === "string" ? legacy.full_text : "",
+    views,
+    likes: metricOrNull(legacy.favorite_count),
+    reposts: metricOrNull(legacy.retweet_count),
+    replies: metricOrNull(legacy.reply_count),
+  };
+}
+
+export function parseUserTweetsResponse(data: any): { posts: StatsPost[]; bottomCursor?: string } {
+  const instructions =
+    getByPath(data, "data.user.result.timeline_v2.timeline.instructions") ??
+    getByPath(data, "data.user.result.timeline.timeline.instructions") ??
+    [];
+
+  const posts: StatsPost[] = [];
+  let bottomCursor: string | undefined;
+
+  for (const ins of instructions) {
+    if (ins?.type !== "TimelineAddEntries" || !Array.isArray(ins.entries)) continue;
+
+    for (const entry of ins.entries) {
+      const entryId = entry?.entryId ?? "";
+
+      if (entryId.startsWith("tweet-")) {
+        const post = statsPostFromResult(entry?.content?.itemContent?.tweet_results?.result);
+        if (post) posts.push(post);
+      } else if (entryId.startsWith("profile-conversation-")) {
+        // A self-thread: only the head post counts (the rest are replies).
+        const items = entry?.content?.items;
+        const head = Array.isArray(items) ? items[0] : null;
+        const post = statsPostFromResult(head?.item?.itemContent?.tweet_results?.result);
+        if (post) posts.push(post);
+      } else if (entryId.startsWith("cursor-bottom-")) {
+        const v = entry?.content?.value;
+        if (typeof v === "string" && v) bottomCursor = v;
+      }
+    }
+  }
+
+  return { posts, bottomCursor };
+}
+
+export async function getUserTweetsPage(
+  auth: AuthConfig,
+  userId: string,
+  opts?: { count?: number; cursor?: string }
+): Promise<{ posts: StatsPost[]; bottomCursor?: string }> {
+  const variables: Record<string, any> = {
+    userId,
+    count: opts?.count ?? 50,
+    includePromotedContent: true,
+    withQuickPromoteEligibilityTweetFields: true,
+    withVoice: true,
+    withV2Timeline: true,
+  };
+  if (opts?.cursor) variables.cursor = opts.cursor;
+
+  const data = await graphqlGet(auth, USER_TWEETS_QUERY_ID, "UserTweets", variables);
+  return parseUserTweetsResponse(data);
+}
+
+/**
+ * Collects the account's follower count and newest posts with their
+ * public metrics, in the same shape tweet-gas's sns_snapshot reports
+ * (absent metrics are null, retweets and replies are excluded).
+ */
+export async function getUserStats(
+  auth: AuthConfig,
+  opts?: { count?: number }
+): Promise<UserStats> {
+  const count = opts?.count ?? 50;
+  const profile = await getOwnProfile(auth);
+
+  const byId = new Map<string, StatsPost>();
+  let cursor: string | undefined;
+  const MAX_PAGES = 6;
+
+  for (let page = 0; page < MAX_PAGES && byId.size < count; page++) {
+    const { posts, bottomCursor } = await getUserTweetsPage(auth, profile.id, { count, cursor });
+    for (const p of posts) {
+      if (!byId.has(p.id)) byId.set(p.id, p);
+    }
+    if (!bottomCursor || bottomCursor === cursor) break;
+    cursor = bottomCursor;
+  }
+
+  return {
+    collected_at: new Date().toISOString(),
+    username: profile.username,
+    followers: profile.followers,
+    following: profile.following,
+    recent_posts: [...byId.values()].slice(0, count),
+  };
+}

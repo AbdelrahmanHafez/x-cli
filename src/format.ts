@@ -1,4 +1,4 @@
-import type { Tweet, TweetThread, NotificationsPage, Notification, NotificationActor } from "./api.js";
+import type { Tweet, TweetThread, NotificationsPage, Notification, NotificationActor, UserStats } from "./api.js";
 
 const COLORS = {
   reset: "\x1b[0m",
@@ -192,4 +192,57 @@ export function formatNotificationsJson(page: NotificationsPage, options?: { col
   const json = JSON.stringify(simplifiedNotifications, null, 2);
   const useColor = options?.color ?? process.stdout.isTTY;
   return useColor ? highlightJson(json) : json;
+}
+
+// ===== User stats =====
+
+/** Snapshot-shaped JSON, matching the x section of tweet-gas sns_snapshot. */
+export function formatStatsJson(stats: UserStats, options?: { color?: boolean }): string {
+  const doc = {
+    ok: true,
+    collected_at: stats.collected_at,
+    x: {
+      username: stats.username,
+      followers: stats.followers,
+      following: stats.following,
+      recent_posts: stats.recent_posts,
+    },
+  };
+  const json = JSON.stringify(doc, null, 2);
+  const useColor = options?.color ?? process.stdout.isTTY;
+  return useColor ? highlightJson(json) : json;
+}
+
+export function formatStatsPretty(stats: UserStats): string {
+  const lines: string[] = [];
+
+  const followers = stats.followers != null ? formatNumber(stats.followers) : "unknown";
+  const following = stats.following != null ? formatNumber(stats.following) : "unknown";
+  lines.push(
+    `${COLORS.bold}@${stats.username ?? "?"}${COLORS.reset} ${COLORS.dim}— ${followers} followers · ${following} following${COLORS.reset}`
+  );
+
+  for (const post of stats.recent_posts) {
+    const when = post.posted_at ? formatDate(post.posted_at) : "";
+    const metrics = [
+      post.replies != null && post.replies > 0
+        ? `${COLORS.cyan}${formatNumber(post.replies)} replies${COLORS.reset}`
+        : null,
+      post.reposts != null && post.reposts > 0
+        ? `${COLORS.green}${formatNumber(post.reposts)} reposts${COLORS.reset}`
+        : null,
+      post.likes != null && post.likes > 0
+        ? `${COLORS.yellow}${formatNumber(post.likes)} likes${COLORS.reset}`
+        : null,
+      post.views != null ? `${COLORS.gray}${formatNumber(post.views)} views${COLORS.reset}` : null,
+    ]
+      .filter(Boolean)
+      .join("  ");
+
+    lines.push("");
+    lines.push(`${COLORS.dim}${when}${COLORS.reset}  ${post.text.split("\n")[0]}`);
+    if (metrics) lines.push(`  ${metrics}`);
+  }
+
+  return lines.join("\n");
 }

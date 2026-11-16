@@ -9,10 +9,11 @@ import {
   getHomeTimeline,
   getHomeLatestTimeline,
   getNotificationsTimeline,
+  getUserStats,
 } from "./api.js";
 
 import { loadAuth, clearAuth } from "./storage.js";
-import { formatThreadPretty, formatThreadJson, formatTweet, formatNotificationsJson, formatNotificationsPretty } from "./format.js";
+import { formatThreadPretty, formatThreadJson, formatTweet, formatNotificationsJson, formatNotificationsPretty, formatStatsJson, formatStatsPretty } from "./format.js";
 import { getCompletionScript } from "./completions.js";
 import { installCompletions } from "./setup.js";
 
@@ -199,6 +200,47 @@ const cli = yargs(hideBin(process.argv))
           console.log(formatNotificationsPretty(page));
         } else {
           console.log(formatNotificationsJson(page));
+        }
+      } catch (error) {
+        console.error(
+          "Error:",
+          error instanceof Error ? error.message : String(error)
+        );
+        process.exit(1);
+      }
+    }
+  )
+  .command(
+    "stats",
+    "View your own stats (login required)",
+    (yargs) => {
+      return yargs
+        .option("count", {
+          alias: "n",
+          describe: "Number of recent posts to fetch",
+          type: "number",
+          default: 50,
+        })
+        .option("pretty", {
+          alias: "p",
+          describe: "Pretty print output with colors",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      try {
+        const auth = await loadAuth();
+        if (!auth) {
+          console.log("Not logged in. Run 'x login' to authenticate.\n");
+          process.exit(1);
+          return;
+        }
+        const stats = await getUserStats(auth, { count: argv.count });
+        if (argv.pretty) {
+          console.log(formatStatsPretty(stats));
+        } else {
+          console.log(formatStatsJson(stats));
         }
       } catch (error) {
         console.error(

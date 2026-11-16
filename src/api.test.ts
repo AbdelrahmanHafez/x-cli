@@ -17,6 +17,11 @@ import {
   parseNotificationsTimelineResponse,
   getNotificationsTimeline,
   compareSortIndex,
+  parseUserResult,
+  extractViewerProfile,
+  statsPostFromResult,
+  parseUserTweetsResponse,
+  getUserStats,
 } from "./api.js";
 import { AuthConfig } from "./auth.js";
 import { jest } from "@jest/globals";
@@ -907,6 +912,264 @@ describe("notification production shapes", () => {
         },
       };
       expect(extractNotificationMessage(entry)).toBe("Alice followed you");
+    });
+  });
+});
+
+describe("user stats", () => {
+  const makeUserResult = (overrides: any = {}) => ({
+    __typename: "User",
+    rest_id: "386573",
+    core: { screen_name: "freddiefujiwara", name: "Fumikazu Fujiwara" },
+    legacy: { followers_count: 1841, friends_count: 120 },
+    ...overrides,
+  });
+
+  const makeTweetResult = (id: string, legacyOverrides: any = {}, overrides: any = {}) => ({
+    __typename: "Tweet",
+    rest_id: id,
+    legacy: {
+      full_text: `Post ${id}`,
+      created_at: "Mon Nov 10 03:00:00 +0000 2026",
+      favorite_count: 7,
+      retweet_count: 3,
+      reply_count: 2,
+      ...legacyOverrides,
+    },
+    views: { count: "456" },
+    ...overrides,
+  });
+
+  const userTweetsData = (entries: any[]) => ({
+    data: {
+      user: {
+        result: {
+          timeline_v2: {
+            timeline: {
+              instructions: [{ type: "TimelineAddEntries", entries }],
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const tweetEntry = (result: any) => ({
+    entryId: `tweet-${result.rest_id}`,
+    content: { itemContent: { tweet_results: { result } } },
+  });
+
+  describe("parseUserResult", () => {
+    it("parses id, names and counts", () => {
+      expect(parseUserResult(makeUserResult())).toEqual({
+        id: "386573",
+        username: "freddiefujiwara",
+        name: "Fumikazu Fujiwara",
+        followers: 1841,
+        following: 120,
+      });
+    });
+
+    it("falls back to legacy screen_name and name", () => {
+      const profile = parseUserResult({
+        __typename: "User",
+        rest_id: "42",
+        legacy: { screen_name: "legacy_user", name: "Legacy Name", followers_count: 1, friends_count: 2 },
+      });
+      expect(profile?.username).toBe("legacy_user");
+      expect(profile?.name).toBe("Legacy Name");
+    });
+
+    it("keeps absent counts null instead of 0", () => {
+      const profile = parseUserResult({ __typename: "User", rest_id: "42", legacy: {} });
+      expect(profile?.followers).toBeNull();
+      expect(profile?.following).toBeNull();
+    });
+
+    it("returns null for unavailable or malformed results", () => {
+      expect(parseUserResult({ __typename: "UserUnavailable", rest_id: "42" })).toBeNull();
+      expect(parseUserResult({ __typename: "User" })).toBeNull();
+      expect(parseUserResult(null)).toBeNull();
+    });
+  });
+
+  describe("extractViewerProfile", () => {
+    it("reads the viewer from a notifications response", () => {
+      const data = { data: { viewer_v2: { user_results: { result: makeUserResult() } } } };
+      expect(extractViewerProfile(data)?.followers).toBe(1841);
+    });
+
+    it("returns null when the viewer is missing", () => {
+      expect(extractViewerProfile({ data: {} })).toBeNull();
+      expect(extractViewerProfile(null)).toBeNull();
+    });
+  });
+
+  describe("statsPostFromResult", () => {
+    it("maps metrics and converts the date to ISO", () => {
+      expect(statsPostFromResult(makeTweetResult("1001"))).toEqual({
+        id: "1001",
+        posted_at: "2026-11-10T03:00:00.000Z",
+        text: "Post 1001",
+        views: 456,
+        likes: 7,
+        reposts: 3,
+        replies: 2,
+      });
+    });
+
+    it("unwraps TweetWithVisibilityResults", () => {
+      const wrapped = { __typename: "TweetWithVisibilityResults", tweet: makeTweetResult("1002") };
+      expect(statsPostFromResult(wrapped)?.id).toBe("1002");
+    });
+
+    it("excludes retweets and replies", () => {
+      expect(
+        statsPostFromResult(makeTweetResult("1003", { retweeted_status_result: { result: {} } }))
+      ).toBeNull();
+      expect(
+        statsPostFromResult(makeTweetResult("1004", { in_reply_to_status_id_str: "999" }))
+      ).toBeNull();
+    });
+
+    it("keeps absent metrics null", () => {
+      const post = statsPostFromResult(
+        makeTweetResult("1005", { favorite_count: undefined }, { views: {} })
+      );
+      expect(post?.views).toBeNull();
+      expect(post?.likes).toBeNull();
+    });
+
+    it("returns null for tombstones", () => {
+      expect(statsPostFromResult({ __typename: "TweetTombstone" })).toBeNull();
+    });
+  });
+
+  describe("parseUserTweetsResponse", () => {
+    it("collects posts, skips replies and reads the bottom cursor", () => {
+      const data = userTweetsData([
+        tweetEntry(makeTweetResult("1001")),
+        tweetEntry(makeTweetResult("1002", { in_reply_to_status_id_str: "999" })),
+        {
+          entryId: "profile-conversation-1003",
+          content: {
+            items: [
+              { item: { itemContent: { tweet_results: { result: makeTweetResult("1003") } } } },
+              {
+                item: {
+                  itemContent: {
+                    tweet_results: {
+                      result: makeTweetResult("1004", { in_reply_to_status_id_str: "1003" }),
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+        { entryId: "cursor-bottom-0", content: { value: "CURSOR123" } },
+      ]);
+
+      const { posts, bottomCursor } = parseUserTweetsResponse(data);
+      expect(posts.map((p) => p.id)).toEqual(["1001", "1003"]);
+      expect(bottomCursor).toBe("CURSOR123");
+    });
+  });
+
+  describe("getUserStats", () => {
+    let fetchSpy: jest.SpiedFunction<typeof fetch>;
+
+    beforeEach(() => {
+      fetchSpy = jest.spyOn(global, "fetch");
+    });
+
+    afterEach(() => {
+      fetchSpy.mockRestore();
+    });
+
+    const profileData = { data: { user: { result: makeUserResult() } } };
+
+    it("uses the stored userId when present", async () => {
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("UserByRestId")) return mockResponse(profileData);
+        if (u.includes("UserTweets")) {
+          return mockResponse(userTweetsData([tweetEntry(makeTweetResult("1001"))]));
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      const stats = await getUserStats(auth, { count: 50 });
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(stats.username).toBe("freddiefujiwara");
+      expect(stats.followers).toBe(1841);
+      expect(stats.following).toBe(120);
+      expect(stats.recent_posts).toHaveLength(1);
+      expect(stats.recent_posts[0].id).toBe("1001");
+      expect(typeof stats.collected_at).toBe("string");
+    });
+
+    it("resolves the profile from the notifications viewer when no userId is stored", async () => {
+      const viewerData = {
+        data: { viewer_v2: { user_results: { result: makeUserResult() } } },
+      };
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("NotificationsTimeline")) return mockResponse(viewerData);
+        if (u.includes("UserTweets")) {
+          return mockResponse(userTweetsData([tweetEntry(makeTweetResult("1001"))]));
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c" };
+      const stats = await getUserStats(auth);
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(stats.followers).toBe(1841);
+      expect(stats.recent_posts).toHaveLength(1);
+    });
+
+    it("paginates until the requested count is collected and dedupes", async () => {
+      let tweetsCalls = 0;
+      fetchSpy.mockImplementation(async (url: any) => {
+        const u = String(url);
+        if (u.includes("UserByRestId")) return mockResponse(profileData);
+        if (u.includes("UserTweets")) {
+          tweetsCalls++;
+          if (tweetsCalls === 1) {
+            return mockResponse(
+              userTweetsData([
+                tweetEntry(makeTweetResult("1001")),
+                tweetEntry(makeTweetResult("1002")),
+                { entryId: "cursor-bottom-0", content: { value: "C2" } },
+              ])
+            );
+          }
+          return mockResponse(
+            userTweetsData([
+              tweetEntry(makeTweetResult("1002")),
+              tweetEntry(makeTweetResult("1003")),
+            ])
+          );
+        }
+        throw new Error(`Unexpected URL: ${u}`);
+      });
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      const stats = await getUserStats(auth, { count: 3 });
+
+      expect(tweetsCalls).toBe(2);
+      expect(stats.recent_posts.map((p) => p.id)).toEqual(["1001", "1002", "1003"]);
+    });
+
+    it("propagates API errors", async () => {
+      fetchSpy.mockResolvedValue(mockResponse("Internal Server Error", false, 500));
+
+      const auth: AuthConfig = { authToken: "t", csrfToken: "c", userId: "386573" };
+      await expect(getUserStats(auth)).rejects.toThrow("UserByRestId failed (500)");
     });
   });
 
