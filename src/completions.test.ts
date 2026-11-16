@@ -5,13 +5,14 @@ describe("completions", () => {
     it("should return the BASH completion script", () => {
       const script = getCompletionScript("bash");
       expect(script).toContain("# x CLI completion script for Bash");
-      expect(script).toContain("commands=\"tweet home login logout whoami completion setup\"");
+      expect(script).toContain("commands=\"tweet home notify login logout whoami completion setup\"");
     });
 
     it("should return the ZSH completion script", () => {
       const script = getCompletionScript("zsh");
       expect(script).toContain("# x CLI completion script for Zsh");
       expect(script).toContain("'home:View your home timeline (login required)'");
+      expect(script).toContain("'notify:View notifications (login required)'");
     });
 
     it("should return the FISH completion script", () => {
@@ -19,6 +20,9 @@ describe("completions", () => {
       expect(script).toContain("# x CLI completion script for Fish");
       expect(script).toContain(
         "complete -c x -n \"__fish_use_subcommand\" -a \"home\" -d \"View your home timeline (login required)\""
+      );
+      expect(script).toContain(
+        "complete -c x -n \"__fish_use_subcommand\" -a \"notify\" -d \"View notifications (login required)\""
       );
     });
 

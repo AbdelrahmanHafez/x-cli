@@ -131,6 +131,7 @@ x completion fish > ~/.config/fish/completions/x.fish
 |---------|-------------|
 | `x tweet <url>` | View a tweet (guest mode if not logged in) |
 | `x home` | View your home timeline (login required) |
+| `x notify` | View notifications (login required) |
 | `x login` | Show authentication setup instructions |
 | `x logout` | Clear stored credentials |
 | `x whoami` | Show current auth status |
