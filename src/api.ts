@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AuthConfig, buildCookieHeader } from "./auth.js";
+import { AuthConfig, BEARER_TOKEN, buildCookieHeader } from "./auth.js";
 import { ClientTransaction, handleXMigration } from "x-client-transaction-id";
 import { getGuestToken } from "./guest-token.js";
 
@@ -11,11 +11,12 @@ const HOME_LATEST_TIMELINE_QUERY_ID = "HN6oP_7h7HayqyYimz97Iw";
 const BASE_URL = "https://x.com/i/api/graphql";  // For authenticated requests
 const GUEST_BASE_URL = "https://api.x.com/graphql";  // For guest requests
 
+const CHROME_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+const FIREFOX_UA = "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0";
+
 // Cached transaction client for guest requests
 let transactionClient: ClientTransaction | null = null;
-
-// Public bearer token used by Twitter's web client
-const BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
 const FEATURES = {
   rweb_video_screen_enabled: false,
@@ -92,11 +93,42 @@ export interface TweetThread {
 }
 
 export interface HomeTimelineResult {
-
   tweets: Tweet[];
   cursor?: string; // For next page (if available)
 }
-export interface HomeLatestTimelineResult extends HomeTimelineResult {}
+
+// ---- Shared request plumbing ----
+
+function authHeaders(auth: AuthConfig, overrides?: Record<string, string>): Record<string, string> {
+  return {
+    accept: "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    authorization: `Bearer ${BEARER_TOKEN}`,
+    "content-type": "application/json",
+    cookie: buildCookieHeader(auth),
+    "x-csrf-token": auth.csrfToken,
+    "x-client-uuid": randomUUID(),
+    "x-twitter-active-user": "yes",
+    "x-twitter-auth-type": "OAuth2Session",
+    "x-twitter-client-language": "en",
+    "user-agent": CHROME_UA,
+    ...overrides,
+  };
+}
+
+async function assertOk(response: Response, label: string): Promise<void> {
+  if (response.ok) return;
+  const text = await response.text();
+  const error = new Error(`${label} (${response.status}): ${text}`) as Error & { status: number };
+  error.status = response.status;
+  throw error;
+}
+
+function assertNoErrors(data: any): void {
+  if (data.errors) {
+    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  }
+}
 
 function extractTweetFromResult(result: any): Tweet | null {
   if (!result || result.__typename === "TweetTombstone") {
@@ -163,38 +195,12 @@ export async function getTweetDetail(
 
   const url = `${BASE_URL}/${TWEET_DETAIL_QUERY_ID}/TweetDetail?${params}`;
 
-  // Generate a random UUID for this session
-  const clientUuid = randomUUID();
+  const response = await fetch(url, { headers: authHeaders(auth) });
 
-  const response = await fetch(url, {
-    headers: {
-      accept: "*/*",
-      "accept-language": "en-US,en;q=0.9",
-      authorization: `Bearer ${BEARER_TOKEN}`,
-      "content-type": "application/json",
-      cookie: buildCookieHeader(auth),
-      "x-csrf-token": auth.csrfToken,
-      "x-client-uuid": clientUuid,
-      "x-twitter-active-user": "yes",
-      "x-twitter-auth-type": "OAuth2Session",
-      "x-twitter-client-language": "en",
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(`API request failed (${response.status}): ${text}`) as Error & { status: number };
-    error.status = response.status;
-    throw error;
-  }
+  await assertOk(response, "API request failed");
 
   const data = await response.json();
-
-  // Check for errors in response
-  if (data.errors) {
-    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
-  }
+  assertNoErrors(data);
 
   return parseTweetDetailResponse(data, tweetId);
 }
@@ -297,37 +303,19 @@ export async function getHomeTimeline(
 
   const url = `${BASE_URL}/${HOME_TIMELINE_QUERY_ID}/HomeTimeline?${params}`;
 
-  const clientUuid = randomUUID();
-
   const response = await fetch(url, {
-    headers: {
-      accept: "*/*",
+    headers: authHeaders(auth, {
       "accept-language": "ja,en-US;q=0.7,en;q=0.3",
-      authorization: `Bearer ${BEARER_TOKEN}`,
-      "content-type": "application/json",
-      cookie: buildCookieHeader(auth),
-      "x-csrf-token": auth.csrfToken,
-      "x-client-uuid": clientUuid,
-      "x-twitter-auth-type": "OAuth2Session",
-      "x-twitter-client-language": "en",
       "x-twitter-active-user": "no",
-      "user-agent":
-        "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0",
+      "user-agent": FIREFOX_UA,
       referer: "https://x.com/home",
-    },
+    }),
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(`HomeTimeline failed (${response.status}): ${text}`) as Error & { status: number };
-    error.status = response.status;
-    throw error;
-  }
+  await assertOk(response, "HomeTimeline failed");
 
   const data = await response.json();
-  if (data.errors) {
-    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
-  }
+  assertNoErrors(data);
 
   return parseHomeTimelineResponse(data, opts?.count);
 }
@@ -358,26 +346,14 @@ export async function getHomeLatestTimeline(
 
   const url = `${BASE_URL}/${HOME_LATEST_TIMELINE_QUERY_ID}/HomeLatestTimeline`;
 
-  const clientUuid = randomUUID();
-
   const response = await fetch(url, {
     method: "POST",
-    headers: {
-      accept: "*/*",
+    headers: authHeaders(auth, {
       "accept-language": "ja,en-US;q=0.7,en;q=0.3",
-      authorization: `Bearer ${BEARER_TOKEN}`,
-      "content-type": "application/json",
-      cookie: buildCookieHeader(auth),
-      "x-csrf-token": auth.csrfToken,
-      "x-client-uuid": clientUuid,
-      "x-twitter-auth-type": "OAuth2Session",
-      "x-twitter-client-language": "en",
-      "x-twitter-active-user": "yes",
-      "user-agent":
-        "Mozilla/5.0 (X11; Linux x86_64) Gecko/20100101 Firefox/146.0",
+      "user-agent": FIREFOX_UA,
       referer: "https://x.com/home",
       origin: "https://x.com",
-    },
+    }),
     body: JSON.stringify({
       queryId: HOME_LATEST_TIMELINE_QUERY_ID,
       variables,
@@ -385,19 +361,10 @@ export async function getHomeLatestTimeline(
     }),
   });
 
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(
-      `HomeLatestTimeline failed (${response.status}): ${text}`
-    ) as Error & { status: number };
-    error.status = response.status;
-    throw error;
-  }
+  await assertOk(response, "HomeLatestTimeline failed");
 
   const data = await response.json();
-  if (data.errors) {
-    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
-  }
+  assertNoErrors(data);
 
   // The response structure is home.home_timeline_urt.instructions, so reuse the existing parser.
   return parseHomeTimelineResponse(data, opts?.count);
@@ -497,7 +464,7 @@ export async function getTweetAsGuest(tweetId: string): Promise<Tweet> {
       "x-client-transaction-id": transactionId,
       "x-twitter-active-user": "yes",
       "x-twitter-client-language": "en",
-      "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "user-agent": CHROME_UA,
     },
   });
 
@@ -507,10 +474,7 @@ export async function getTweetAsGuest(tweetId: string): Promise<Tweet> {
   }
 
   const data = await response.json();
-
-  if (data.errors) {
-    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
-  }
+  assertNoErrors(data);
 
   const result = data?.data?.tweetResult?.result;
   if (!result) {
@@ -764,10 +728,6 @@ export function extractNotificationMessage(entry: any): string | undefined {
   return typeof msg === "string" ? msg : undefined;
 }
 
-/**
- * Converts the 'element' string from an API response to a NotificationKind.
- * @param element The value of `clientEventInfo.element` from the JSON response.
- */
 const ELEMENT_TO_KIND: Record<string, NotificationKind> = {
   users_liked_your_tweet: "like",
   users_liked_your_post: "like",
@@ -885,36 +845,12 @@ export async function getNotificationsTimeline(
 
   const url = `${BASE_URL}/${NOTIFICATIONS_TIMELINE_QUERY_ID}/NotificationsTimeline?${params}`;
 
-  const clientUuid = randomUUID();
+  const response = await fetch(url, { headers: authHeaders(auth) });
 
-  const response = await fetch(url, {
-    headers: {
-      accept: "*/*",
-      "accept-language": "en-US,en;q=0.9",
-      authorization: `Bearer ${BEARER_TOKEN}`,
-      "content-type": "application/json",
-      cookie: buildCookieHeader(auth),
-      "x-csrf-token": auth.csrfToken,
-      "x-client-uuid": clientUuid,
-      "x-twitter-active-user": "yes",
-      "x-twitter-auth-type": "OAuth2Session",
-      "x-twitter-client-language": "en",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(`Notifications API request failed (${response.status}): ${text}`) as Error & {
-      status: number;
-    };
-    error.status = response.status;
-    throw error;
-  }
+  await assertOk(response, "Notifications API request failed");
 
   const data = await response.json();
-  if (data.errors) throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
+  assertNoErrors(data);
 
   return parseNotificationsTimelineResponse(data);
 }
@@ -1051,38 +987,12 @@ async function graphqlGet(
 
   const url = `${BASE_URL}/${queryId}/${operationName}?${params}`;
 
-  const clientUuid = randomUUID();
+  const response = await fetch(url, { headers: authHeaders(auth) });
 
-  const response = await fetch(url, {
-    headers: {
-      accept: "*/*",
-      "accept-language": "en-US,en;q=0.9",
-      authorization: `Bearer ${BEARER_TOKEN}`,
-      "content-type": "application/json",
-      cookie: buildCookieHeader(auth),
-      "x-csrf-token": auth.csrfToken,
-      "x-client-uuid": clientUuid,
-      "x-twitter-active-user": "yes",
-      "x-twitter-auth-type": "OAuth2Session",
-      "x-twitter-client-language": "en",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    const error = new Error(`${operationName} failed (${response.status}): ${text}`) as Error & {
-      status: number;
-    };
-    error.status = response.status;
-    throw error;
-  }
+  await assertOk(response, `${operationName} failed`);
 
   const data = await response.json();
-  if (data.errors) {
-    throw new Error(`API returned errors: ${JSON.stringify(data.errors)}`);
-  }
+  assertNoErrors(data);
   return data;
 }
 
