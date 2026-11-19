@@ -130,14 +130,16 @@ function assertNoErrors(data: any): void {
   }
 }
 
-function extractTweetFromResult(result: any): Tweet | null {
+/** Unwraps a tweet result, returning null for tombstones. */
+function unwrapTweetResult(result: any): any | null {
   if (!result || result.__typename === "TweetTombstone") {
     return null;
   }
+  return result.__typename === "TweetWithVisibilityResults" ? result.tweet : result;
+}
 
-  const tweet = result.__typename === "TweetWithVisibilityResults"
-    ? result.tweet
-    : result;
+function extractTweetFromResult(result: any): Tweet | null {
+  const tweet = unwrapTweetResult(result);
 
   if (!tweet?.legacy || !tweet?.core?.user_results?.result) {
     return null;
@@ -205,15 +207,20 @@ export async function getTweetDetail(
   return parseTweetDetailResponse(data, tweetId);
 }
 
-function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread {
-  const instructions = data?.data?.threaded_conversation_with_injections_v2?.instructions || [];
+/** Flattens the entries of all TimelineAddEntries instructions, in order. */
+function collectEntries(instructions: any[]): any[] {
   const entries: any[] = [];
-
-  for (const instruction of instructions) {
-    if (instruction.type === "TimelineAddEntries" && instruction.entries) {
-      entries.push(...instruction.entries);
+  for (const ins of instructions) {
+    if (ins?.type === "TimelineAddEntries" && Array.isArray(ins.entries)) {
+      entries.push(...ins.entries);
     }
   }
+  return entries;
+}
+
+function parseTweetDetailResponse(data: any, focalTweetId: string): TweetThread {
+  const instructions = data?.data?.threaded_conversation_with_injections_v2?.instructions || [];
+  const entries = collectEntries(instructions);
 
   let mainTweet: Tweet | null = null;
   const parentTweets: Tweet[] = [];
@@ -375,13 +382,7 @@ export function parseHomeTimelineResponse(
   count?: number,
 ): HomeTimelineResult {
   const instructions = data?.data?.home?.home_timeline_urt?.instructions ?? [];
-  const entries: any[] = [];
-
-  for (const ins of instructions) {
-    if (ins?.type === "TimelineAddEntries" && Array.isArray(ins.entries)) {
-      entries.push(...ins.entries);
-    }
-  }
+  const entries = collectEntries(instructions);
 
   const tweets: Tweet[] = [];
   for (const entry of entries) {
@@ -412,9 +413,6 @@ export function findCursor(entries: any[]): string | undefined {
 
     const c2 = e?.content?.itemContent?.value;
     if (typeof c2 === "string" && c2.length > 10) return c2;
-
-    const c3 = e?.content?.cursorType && e?.content?.value;
-    if (typeof c3 === "string" && c3.length > 10) return c3;
   }
   return undefined;
 }
@@ -867,24 +865,18 @@ export function parseNotificationsTimelineResponse(data: any): NotificationsPage
   const instructions =
     getByPath(data, "data.viewer_v2.user_results.result.notification_timeline.timeline.instructions") ?? [];
 
-  const entries: any[] = [];
+  const entries = collectEntries(instructions);
+
   let topCursor: string | undefined;
   let bottomCursor: string | undefined;
+  for (const e of entries) {
+    const entryId = e?.entryId ?? "";
+    if (entryId.startsWith("cursor-top-") && e?.content?.value) topCursor = e.content.value;
+    if (entryId.startsWith("cursor-bottom-") && e?.content?.value) bottomCursor = e.content.value;
+  }
+
   let markUnreadGreaterThanSortIndex: string | undefined;
-
   for (const ins of instructions) {
-    if (ins?.type === "TimelineAddEntries" && Array.isArray(ins.entries)) {
-      for (const e of ins.entries) {
-        entries.push(e);
-
-        const entryId = e?.entryId ?? "";
-        const content = e?.content;
-
-        if (entryId.startsWith("cursor-top-") && content?.value) topCursor = content.value;
-        if (entryId.startsWith("cursor-bottom-") && content?.value) bottomCursor = content.value;
-      }
-    }
-
     if (ins?.type === "TimelineMarkEntriesUnreadGreaterThanSortIndex" && ins?.sort_index) {
       markUnreadGreaterThanSortIndex = ins.sort_index;
     }
@@ -1025,11 +1017,7 @@ async function fetchViewerProfile(auth: AuthConfig): Promise<UserProfile | null>
  * (exclude=retweets,replies).
  */
 export function statsPostFromResult(result: any): StatsPost | null {
-  if (!result || result.__typename === "TweetTombstone") {
-    return null;
-  }
-
-  const tweet = result.__typename === "TweetWithVisibilityResults" ? result.tweet : result;
+  const tweet = unwrapTweetResult(result);
   const legacy = tweet?.legacy;
   if (!legacy || typeof tweet?.rest_id !== "string" || !tweet.rest_id) {
     return null;
@@ -1076,33 +1064,29 @@ export function parseUserTweetsResponse(data: any): {
   // so the first resolvable author is the timeline owner's screen name.
   const noteAuthor = (result: any) => {
     if (authorUsername) return;
-    const tweet = result?.__typename === "TweetWithVisibilityResults" ? result.tweet : result;
+    const tweet = unwrapTweetResult(result);
     authorUsername = extractActorFromUserResult(tweet?.core?.user_results?.result)?.username;
   };
 
-  for (const ins of instructions) {
-    if (ins?.type !== "TimelineAddEntries" || !Array.isArray(ins.entries)) continue;
+  for (const entry of collectEntries(instructions)) {
+    const entryId = entry?.entryId ?? "";
 
-    for (const entry of ins.entries) {
-      const entryId = entry?.entryId ?? "";
-
-      if (entryId.startsWith("tweet-")) {
-        const result = entry?.content?.itemContent?.tweet_results?.result;
-        noteAuthor(result);
-        const post = statsPostFromResult(result);
-        if (post) posts.push(post);
-      } else if (entryId.startsWith("profile-conversation-")) {
-        // A self-thread: only the head post counts (the rest are replies).
-        const items = entry?.content?.items;
-        const head = Array.isArray(items) ? items[0] : null;
-        const result = head?.item?.itemContent?.tweet_results?.result;
-        noteAuthor(result);
-        const post = statsPostFromResult(result);
-        if (post) posts.push(post);
-      } else if (entryId.startsWith("cursor-bottom-")) {
-        const v = entry?.content?.value;
-        if (typeof v === "string" && v) bottomCursor = v;
-      }
+    if (entryId.startsWith("tweet-")) {
+      const result = entry?.content?.itemContent?.tweet_results?.result;
+      noteAuthor(result);
+      const post = statsPostFromResult(result);
+      if (post) posts.push(post);
+    } else if (entryId.startsWith("profile-conversation-")) {
+      // A self-thread: only the head post counts (the rest are replies).
+      const items = entry?.content?.items;
+      const head = Array.isArray(items) ? items[0] : null;
+      const result = head?.item?.itemContent?.tweet_results?.result;
+      noteAuthor(result);
+      const post = statsPostFromResult(result);
+      if (post) posts.push(post);
+    } else if (entryId.startsWith("cursor-bottom-")) {
+      const v = entry?.content?.value;
+      if (typeof v === "string" && v) bottomCursor = v;
     }
   }
 
