@@ -591,7 +591,13 @@ export function findFirstDeep(obj: any, predicate: (node: any) => boolean, maxDe
   return dfs(obj, 0);
 }
 
-export function collectDeep(obj: any, predicate: (node: any) => boolean, maxDepth = 8, limit = 10): any[] {
+export function collectDeep(
+  obj: any,
+  predicate: (node: any) => boolean,
+  maxDepth = 8,
+  limit = 10,
+  skipKeys?: ReadonlySet<string>
+): any[] {
   const results: any[] = [];
   const seen = new Set<any>();
 
@@ -609,6 +615,7 @@ export function collectDeep(obj: any, predicate: (node: any) => boolean, maxDept
     if (predicate(node)) results.push(node);
 
     for (const k of Object.keys(node)) {
+      if (skipKeys && skipKeys.has(k)) continue;
       dfs(node[k], depth + 1);
     }
   }
@@ -659,12 +666,15 @@ export function extractActors(entry: any): NotificationActor[] {
     }
   }
 
-  // fallback deep search
+  // Fallback deep search. Quoted and retweeted subtrees are pruned:
+  // their authors are the quoted / retweeted post's author (typically
+  // the account owner), never the actor of this notification.
   const userNodes = collectDeep(
     entry,
     (n) => isObject(n) && n.user_results && n.user_results.result && isObject(n.user_results.result),
     7,
-    10
+    10,
+    new Set(["quoted_status_result", "retweeted_status_result"])
   );
 
   for (const n of userNodes) {

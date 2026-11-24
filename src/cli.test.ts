@@ -55,7 +55,7 @@ const runCli = async (args: string[]) => {
   process.argv = originalArgv;
 };
 
-describe("x-cli notify command", () => {
+describe("x-cli notifications command", () => {
   let consoleLogSpy: jest.SpiedFunction<typeof console.log>;
   let consoleErrorSpy: jest.SpiedFunction<typeof console.error>;
   let processExitSpy: jest.SpiedFunction<typeof process.exit>;
@@ -82,7 +82,7 @@ describe("x-cli notify command", () => {
   it("should show error and exit if not logged in", async () => {
     mockLoadAuth.mockResolvedValue(null);
 
-    await runCli(["notify"]);
+    await runCli(["notifications"]);
 
     expect(mockLoadAuth).toHaveBeenCalledTimes(1);
     expect(consoleLogSpy).toHaveBeenCalledWith("Not logged in. Run 'x login' to authenticate.\n");
@@ -97,7 +97,7 @@ describe("x-cli notify command", () => {
     mockGetNotificationsTimeline.mockResolvedValue(mockPage);
     mockFormatNotificationsJson.mockReturnValue("json output");
 
-    await runCli(["notify"]);
+    await runCli(["notifications"]);
 
     expect(mockLoadAuth).toHaveBeenCalledTimes(1);
     expect(mockGetNotificationsTimeline).toHaveBeenCalledWith(mockAuth, {
@@ -117,7 +117,7 @@ describe("x-cli notify command", () => {
     mockGetNotificationsTimeline.mockResolvedValue(mockPage);
     mockFormatNotificationsPretty.mockReturnValue("pretty output");
 
-    await runCli(["notify", "--pretty"]);
+    await runCli(["notifications", "--pretty"]);
 
     expect(mockGetNotificationsTimeline).toHaveBeenCalledWith(mockAuth, {
       count: 40,
@@ -136,7 +136,7 @@ describe("x-cli notify command", () => {
     mockGetNotificationsTimeline.mockResolvedValue(mockPage);
     mockFormatNotificationsJson.mockReturnValue("json output");
 
-    await runCli(["notify", "--count", "5", "--type", "Mentions"]);
+    await runCli(["notifications", "--count", "5", "--type", "Mentions"]);
 
     expect(mockGetNotificationsTimeline).toHaveBeenCalledWith(mockAuth, {
       count: 5,
@@ -151,7 +151,7 @@ describe("x-cli notify command", () => {
     mockLoadAuth.mockResolvedValue(mockAuth);
     mockGetNotificationsTimeline.mockRejectedValue(error);
 
-    await runCli(["notify"]);
+    await runCli(["notifications"]);
 
     expect(mockGetNotificationsTimeline).toHaveBeenCalledWith(mockAuth, {
       count: 40,

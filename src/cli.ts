@@ -144,7 +144,7 @@ const cli = yargs(hideBin(process.argv))
     }
   )
   .command(
-    "notify",
+    "notifications",
     "View notifications (login required)",
     (yargs) => {
       return yargs

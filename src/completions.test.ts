@@ -5,7 +5,7 @@ describe("completions", () => {
     it("should return the BASH completion script", () => {
       const script = getCompletionScript("bash");
       expect(script).toContain("# x CLI completion script for Bash");
-      expect(script).toContain("commands=\"tweet home notify stats login logout whoami completion setup\"");
+      expect(script).toContain("commands=\"tweet home notifications stats login logout whoami completion setup\"");
     });
 
     it("should return the ZSH completion script", () => {
