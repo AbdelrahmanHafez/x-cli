@@ -1068,26 +1068,43 @@ export function parseUserTweetsResponse(data: any): {
     authorUsername = extractActorFromUserResult(tweet?.core?.user_results?.result)?.username;
   };
 
-  for (const entry of collectEntries(instructions)) {
+  const pushPost = (post: StatsPost | null) => {
+    if (post && !posts.some((p) => p.id === post.id)) posts.push(post);
+  };
+
+  const handleEntry = (entry: any) => {
     const entryId = entry?.entryId ?? "";
 
     if (entryId.startsWith("tweet-")) {
       const result = entry?.content?.itemContent?.tweet_results?.result;
       noteAuthor(result);
-      const post = statsPostFromResult(result);
-      if (post) posts.push(post);
+      pushPost(statsPostFromResult(result));
     } else if (entryId.startsWith("profile-conversation-")) {
       // A self-thread: only the head post counts (the rest are replies).
       const items = entry?.content?.items;
       const head = Array.isArray(items) ? items[0] : null;
       const result = head?.item?.itemContent?.tweet_results?.result;
       noteAuthor(result);
-      const post = statsPostFromResult(result);
-      if (post) posts.push(post);
+      pushPost(statsPostFromResult(result));
     } else if (entryId.startsWith("cursor-bottom-")) {
       const v = entry?.content?.value;
       if (typeof v === "string" && v) bottomCursor = v;
     }
+  };
+
+  // The pinned post travels in its own TimelinePinEntry instruction,
+  // outside the TimelineAddEntries collectEntries reads, so without
+  // this pass it never reaches the post list. Absorb it first — it
+  // heads the profile — and let pushPost drop the copy when the post
+  // also appears among the regular entries.
+  for (const ins of instructions) {
+    if (ins?.type === "TimelinePinEntry" && ins.entry) {
+      handleEntry(ins.entry);
+    }
+  }
+
+  for (const entry of collectEntries(instructions)) {
+    handleEntry(entry);
   }
 
   return { posts, bottomCursor, authorUsername };
