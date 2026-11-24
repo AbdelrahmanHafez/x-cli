@@ -1,4 +1,4 @@
-import type { Tweet, TweetThread } from "./api.js";
+import type { Tweet, TweetThread, NotificationsPage, Notification, NotificationActor, UserStats } from "./api.js";
 
 const COLORS = {
   reset: "\x1b[0m",
@@ -47,10 +47,10 @@ export function formatTweet(tweet: Tweet, indent: string = ""): string {
   const header = `${COLORS.bold}${author.name}${COLORS.reset} ${COLORS.gray}@${author.username}${COLORS.reset} ${COLORS.dim}${formatDate(createdAt)}${COLORS.reset}`;
 
   const stats = [
-    metrics.replies > 0 ? `${COLORS.cyan}${formatNumber(metrics.replies)} replies${COLORS.reset}` : null,
-    metrics.retweets > 0 ? `${COLORS.green}${formatNumber(metrics.retweets)} retweets${COLORS.reset}` : null,
-    metrics.likes > 0 ? `${COLORS.yellow}${formatNumber(metrics.likes)} likes${COLORS.reset}` : null,
-    metrics.views > 0 ? `${COLORS.gray}${formatNumber(metrics.views)} views${COLORS.reset}` : null,
+    metric(metrics.replies, COLORS.cyan, "replies"),
+    metric(metrics.retweets, COLORS.green, "retweets"),
+    metric(metrics.likes, COLORS.yellow, "likes"),
+    metric(metrics.views, COLORS.gray, "views"),
   ]
     .filter(Boolean)
     .join("  ");
@@ -105,8 +105,148 @@ function highlightJson(json: string): string {
     .replace(/: (true|false|null)/g, `: ${COLORS.blue}$1${COLORS.reset}`);
 }
 
-export function formatThreadJson(thread: TweetThread, options?: { color?: boolean }): string {
-  const json = JSON.stringify(thread, null, 2);
+function toJson(value: unknown, options?: { color?: boolean }): string {
+  const json = JSON.stringify(value, null, 2);
   const useColor = options?.color ?? process.stdout.isTTY;
   return useColor ? highlightJson(json) : json;
+}
+
+/** One colored metric (e.g. "12 likes"), or null when the count is absent or zero. */
+function metric(value: number | null | undefined, color: string, label: string): string | null {
+  return value ? `${color}${formatNumber(value)} ${label}${COLORS.reset}` : null;
+}
+
+export function formatThreadJson(thread: TweetThread, options?: { color?: boolean }): string {
+  return toJson(thread, options);
+}
+
+// ===== Notifications =====
+
+function actorLabel(actor: NotificationActor): string {
+  return `${COLORS.bold}${actor.name || actor.username}${COLORS.reset} ${COLORS.gray}@${actor.username}${COLORS.reset}`;
+}
+
+function formatActors(actors: NotificationActor[]): string {
+  if (actors.length === 0) return "";
+  const first = actorLabel(actors[0]);
+
+  if (actors.length === 1) return first;
+  if (actors.length === 2) return `${first} and ${actorLabel(actors[1])}`;
+  return `${first} and ${actors.length - 1} others`;
+}
+
+function formatNotification(notification: Notification): string {
+  const { kind, actors, tweet, message } = notification;
+
+  let icon = "";
+  let actionText = "";
+  switch (kind) {
+    case "like":
+      icon = `${COLORS.yellow}❤️${COLORS.reset}`;
+      actionText = "liked your tweet";
+      break;
+    case "retweet":
+    case "repost":
+      icon = `${COLORS.green}🔁${COLORS.reset}`;
+      actionText = "reposted your tweet";
+      break;
+    case "follow":
+      icon = `${COLORS.blue}👤${COLORS.reset}`;
+      actionText = "followed you";
+      break;
+    case "reply":
+      icon = `${COLORS.cyan}💬${COLORS.reset}`;
+      actionText = "replied to your tweet";
+      break;
+    case "mention":
+      icon = `${COLORS.cyan}🔔${COLORS.reset}`;
+      actionText = "mentioned you";
+      break;
+    case "quote":
+      icon = `${COLORS.cyan}📝${COLORS.reset}`;
+      actionText = "quoted your tweet";
+      break;
+    default:
+      icon = "ℹ️";
+      break;
+  }
+
+  const unreadMark = notification.unread ? `${COLORS.blue}●${COLORS.reset} ` : "";
+  // The message already names the actor ("Alice liked your post"), so
+  // printing the actor label next to it would say the name twice.
+  const header = message
+    ? `${unreadMark}${icon} "${message}"`
+    : `${unreadMark}${icon} ${formatActors(actors)} ${actionText}`;
+  const tweetStr = tweet ? formatTweet(tweet, "  ") : null;
+
+  return [header, tweetStr].filter(Boolean).join("\n");
+}
+
+
+export function formatNotificationsPretty(page: NotificationsPage): string {
+  const lines = page.notifications.map(formatNotification);
+  const body = lines.join(`\n\n${COLORS.dim}---${COLORS.reset}\n\n`);
+  // Same trailing line x home prints, so --cursor paging works the
+  // same way for both commands.
+  return page.bottomCursor ? `${body}\n\ncursor: ${page.bottomCursor}` : body;
+}
+
+export function formatNotificationsJson(page: NotificationsPage, options?: { color?: boolean }): string {
+  const simplifiedNotifications = page.notifications.map((n) => ({
+    id: n.id,
+    kind: n.kind,
+    unread: n.unread,
+    actors: n.actors,
+    tweet: n.tweet,
+    tweetId: n.tweetId,
+    message: n.message,
+  }));
+  // { notifications, cursor }, mirroring x home's { tweets, cursor },
+  // so the next-page cursor reaches the caller.
+  return toJson({ notifications: simplifiedNotifications, cursor: page.bottomCursor }, options);
+}
+
+// ===== User stats =====
+
+/** Snapshot-shaped JSON, matching the x section of tweet-gas sns_snapshot. */
+export function formatStatsJson(stats: UserStats, options?: { color?: boolean }): string {
+  const doc = {
+    ok: true,
+    collected_at: stats.collected_at,
+    x: {
+      username: stats.username,
+      followers: stats.followers,
+      following: stats.following,
+      recent_posts: stats.recent_posts,
+    },
+  };
+  return toJson(doc, options);
+}
+
+export function formatStatsPretty(stats: UserStats): string {
+  const lines: string[] = [];
+
+  const followers = stats.followers != null ? formatNumber(stats.followers) : "unknown";
+  const following = stats.following != null ? formatNumber(stats.following) : "unknown";
+  lines.push(
+    `${COLORS.bold}@${stats.username ?? "?"}${COLORS.reset} ${COLORS.dim}— ${followers} followers · ${following} following${COLORS.reset}`
+  );
+
+  for (const post of stats.recent_posts) {
+    const when = post.posted_at ? formatDate(post.posted_at) : "";
+    const metrics = [
+      metric(post.replies, COLORS.cyan, "replies"),
+      metric(post.reposts, COLORS.green, "reposts"),
+      metric(post.likes, COLORS.yellow, "likes"),
+      post.views != null ? `${COLORS.gray}${formatNumber(post.views)} views${COLORS.reset}` : null,
+    ]
+      .filter(Boolean)
+      .join("  ");
+
+    lines.push("");
+    lines.push(`${COLORS.dim}${when}${COLORS.reset}  ${post.text.split("\n")[0]}`);
+    if (metrics) lines.push(`  ${metrics}`);
+  }
+
+  return lines.join("\n");
 }
