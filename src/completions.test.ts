@@ -12,7 +12,7 @@ describe("completions", () => {
       const script = getCompletionScript("zsh");
       expect(script).toContain("# x CLI completion script for Zsh");
       expect(script).toContain("'home:View your home timeline (login required)'");
-      expect(script).toContain("'notify:View notifications (login required)'");
+      expect(script).toContain("'notifications:View notifications (login required)'");
       expect(script).toContain("'stats:View your own stats (login required)'");
     });
 
@@ -23,7 +23,7 @@ describe("completions", () => {
         "complete -c x -n \"__fish_use_subcommand\" -a \"home\" -d \"View your home timeline (login required)\""
       );
       expect(script).toContain(
-        "complete -c x -n \"__fish_use_subcommand\" -a \"notify\" -d \"View notifications (login required)\""
+        "complete -c x -n \"__fish_use_subcommand\" -a \"notifications\" -d \"View notifications (login required)\""
       );
       expect(script).toContain(
         "complete -c x -n \"__fish_use_subcommand\" -a \"stats\" -d \"View your own stats (login required)\""
