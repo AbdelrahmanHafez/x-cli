@@ -293,6 +293,36 @@ describe("format notifications", () => {
       // The separator contains ANSI color codes, so we just check for the core part.
       expect(result).toContain("---");
     });
+
+    it("should print only the message when the notification has one", () => {
+      const page = createMockNotificationsPage({
+        notifications: [
+          createMockNotification({
+            kind: "like",
+            actors: [{ name: "Alice", username: "alice" }],
+            message: "Alice liked your post",
+            tweet: undefined,
+          }),
+        ],
+      });
+      const result = formatNotificationsPretty(page);
+      expect(result).toContain("\"Alice liked your post\"");
+      // The actor label would say the name a second time.
+      expect(result).not.toContain("@alice");
+      expect(result.match(/Alice/g)).toHaveLength(1);
+    });
+
+    it("should end with a cursor line when the page has a bottom cursor", () => {
+      const page = createMockNotificationsPage({ bottomCursor: "CURSOR999" });
+      const result = formatNotificationsPretty(page);
+      expect(result.endsWith("cursor: CURSOR999")).toBe(true);
+    });
+
+    it("should not print a cursor line without a bottom cursor", () => {
+      const page = createMockNotificationsPage();
+      const result = formatNotificationsPretty(page);
+      expect(result).not.toContain("cursor:");
+    });
   });
 
   describe("formatNotificationsJson", () => {
@@ -306,17 +336,24 @@ describe("format notifications", () => {
       const page = createMockNotificationsPage();
       const result = formatNotificationsJson(page, { color: false });
       const data = JSON.parse(result);
-      expect(data[0].raw).toBeUndefined();
+      expect(data.notifications[0].raw).toBeUndefined();
     });
 
     it("should include essential properties", () => {
       const page = createMockNotificationsPage();
       const result = formatNotificationsJson(page, { color: false });
       const data = JSON.parse(result);
-      expect(data[0].id).toBe("notification1");
-      expect(data[0].kind).toBe("like");
-      expect(data[0].actors[0].name).toBe("Actor 1");
-      expect(data[0].tweet.id).toBe("123456789");
+      expect(data.notifications[0].id).toBe("notification1");
+      expect(data.notifications[0].kind).toBe("like");
+      expect(data.notifications[0].actors[0].name).toBe("Actor 1");
+      expect(data.notifications[0].tweet.id).toBe("123456789");
+    });
+
+    it("should carry the bottom cursor for paging", () => {
+      const page = createMockNotificationsPage({ bottomCursor: "CURSOR999" });
+      const data = JSON.parse(formatNotificationsJson(page, { color: false }));
+      expect(data.cursor).toBe("CURSOR999");
+      expect(Array.isArray(data.notifications)).toBe(true);
     });
   });
 
@@ -326,8 +363,8 @@ describe("format notifications", () => {
         notifications: [createMockNotification({ tweet: undefined, tweetId: "999888777", unread: true })],
       });
       const data = JSON.parse(formatNotificationsJson(page, { color: false }));
-      expect(data[0].tweetId).toBe("999888777");
-      expect(data[0].unread).toBe(true);
+      expect(data.notifications[0].tweetId).toBe("999888777");
+      expect(data.notifications[0].unread).toBe(true);
     });
   });
 });

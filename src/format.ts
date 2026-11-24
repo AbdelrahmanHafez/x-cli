@@ -171,11 +171,12 @@ function formatNotification(notification: Notification): string {
       break;
   }
 
-  const actorStr = formatActors(actors);
-  const messageStr = message ? `"${message}"` : actionText;
-
   const unreadMark = notification.unread ? `${COLORS.blue}●${COLORS.reset} ` : "";
-  const header = `${unreadMark}${icon} ${actorStr} ${messageStr}`;
+  // The message already names the actor ("Alice liked your post"), so
+  // printing the actor label next to it would say the name twice.
+  const header = message
+    ? `${unreadMark}${icon} "${message}"`
+    : `${unreadMark}${icon} ${formatActors(actors)} ${actionText}`;
   const tweetStr = tweet ? formatTweet(tweet, "  ") : null;
 
   return [header, tweetStr].filter(Boolean).join("\n");
@@ -184,7 +185,10 @@ function formatNotification(notification: Notification): string {
 
 export function formatNotificationsPretty(page: NotificationsPage): string {
   const lines = page.notifications.map(formatNotification);
-  return lines.join(`\n\n${COLORS.dim}---${COLORS.reset}\n\n`);
+  const body = lines.join(`\n\n${COLORS.dim}---${COLORS.reset}\n\n`);
+  // Same trailing line x home prints, so --cursor paging works the
+  // same way for both commands.
+  return page.bottomCursor ? `${body}\n\ncursor: ${page.bottomCursor}` : body;
 }
 
 export function formatNotificationsJson(page: NotificationsPage, options?: { color?: boolean }): string {
@@ -197,7 +201,9 @@ export function formatNotificationsJson(page: NotificationsPage, options?: { col
     tweetId: n.tweetId,
     message: n.message,
   }));
-  return toJson(simplifiedNotifications, options);
+  // { notifications, cursor }, mirroring x home's { tweets, cursor },
+  // so the next-page cursor reaches the caller.
+  return toJson({ notifications: simplifiedNotifications, cursor: page.bottomCursor }, options);
 }
 
 // ===== User stats =====

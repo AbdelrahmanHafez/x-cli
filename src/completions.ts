@@ -10,7 +10,7 @@ _x_completions() {
     COMPREPLY=()
     cur="\${COMP_WORDS[COMP_CWORD]}"
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
-    commands="tweet home notify stats login logout whoami completion setup"
+    commands="tweet home notifications stats login logout whoami completion setup"
 
     case "\${prev}" in
         x)

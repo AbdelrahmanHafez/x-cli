@@ -516,6 +516,49 @@ describe("notification data extraction", () => {
       expect(actors).toHaveLength(1);
       expect(actors[0].username).toBe("follower1");
     });
+
+    it("should not add the quoted tweet's author as an actor", () => {
+      const entry = {
+        entryId: "notification-1",
+        content: {
+          itemContent: {
+            tweet_results: {
+              result: {
+                __typename: "Tweet",
+                rest_id: "1",
+                legacy: { full_text: "nice" },
+                core: {
+                  user_results: {
+                    result: {
+                      __typename: "User",
+                      rest_id: "10",
+                      core: { screen_name: "alice", name: "Alice" },
+                    },
+                  },
+                },
+                quoted_status_result: {
+                  result: {
+                    __typename: "Tweet",
+                    rest_id: "2",
+                    legacy: {},
+                    core: {
+                      user_results: {
+                        result: {
+                          __typename: "User",
+                          rest_id: "20",
+                          core: { screen_name: "bob", name: "Bob" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      };
+      expect(extractActors(entry).map((a) => a.username)).toEqual(["alice"]);
+    });
   });
 
   describe("extractTweetFromNotificationEntry", () => {
